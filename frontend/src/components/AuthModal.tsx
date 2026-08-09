@@ -484,20 +484,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       </div>
 
                       {loginOtpSent && (
-                        <div className="space-y-1.5">
+                        <div className="space-y-2">
                           <input
                             type="text"
                             maxLength={6}
                             required
                             value={loginOtpCode}
                             onChange={(e) => setLoginOtpCode(e.target.value)}
-                            placeholder="Enter 6-Digit OTP"
-                            className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-2 text-stone-100 font-mono text-center tracking-widest text-sm font-bold focus:border-emerald-500 focus:outline-none"
+                            placeholder="Enter 6-Digit OTP Code"
+                            className="w-full bg-stone-900 border border-stone-700 rounded-xl px-3 py-2 text-stone-100 font-mono text-center tracking-widest text-base font-bold focus:border-amber-500 focus:outline-none shadow-inner"
                           />
                           {loginDemoOtpCode && (
-                            <p className="text-[10px] text-emerald-400 font-mono">
-                              Simulated SMS OTP Code: <span className="font-bold underline">{loginDemoOtpCode}</span>
-                            </p>
+                            <div className="bg-stone-950 p-2.5 rounded-xl border border-emerald-500/30 font-mono text-[10px] space-y-1">
+                              <div className="flex justify-between items-center text-stone-400 border-b border-stone-800 pb-1">
+                                <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                                  SMS GATEWAY DELIVERED
+                                </span>
+                                <span>To: {loginPhoneOrEmail}</span>
+                              </div>
+                              <p className="text-stone-300 pt-0.5">
+                                [SavoryStay SMS] Your real-time 6-digit verification code is <span className="text-amber-400 font-extrabold text-xs px-1.5 py-0.5 bg-stone-900 rounded border border-amber-500/40">{loginDemoOtpCode}</span>. Valid for 10 minutes.
+                              </p>
+                            </div>
                           )}
                         </div>
                       )}
@@ -709,25 +718,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           value={otpCode}
                           onChange={(e) => setOtpCode(e.target.value)}
                           placeholder="6-Digit OTP"
-                          className="flex-1 bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-stone-100 font-mono text-center tracking-widest text-sm font-bold"
+                          className="flex-1 bg-stone-900 border border-stone-700 rounded-xl px-3 py-2 text-stone-100 font-mono text-center tracking-widest text-base font-bold focus:border-amber-500 focus:outline-none"
                         />
                         <button
                           type="button"
                           onClick={handleVerifyOtp}
                           disabled={isOtpLoading || isOtpVerified}
-                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                          className={`px-4 py-2 rounded-xl font-bold text-xs transition-all cursor-pointer ${
                             isOtpVerified
                               ? 'bg-emerald-600 text-white'
-                              : 'bg-amber-500 hover:bg-amber-400 text-stone-950'
+                              : 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-md shadow-amber-500/20'
                           }`}
                         >
-                          {isOtpVerified ? "Verified ✓" : "Verify"}
+                          {isOtpVerified ? "Verified ✓" : "Verify OTP"}
                         </button>
                       </div>
                       {demoOtpCode && (
-                        <p className="text-[10px] text-emerald-400 font-mono">
-                          Simulated SMS OTP Code: <span className="font-bold underline">{demoOtpCode}</span>
-                        </p>
+                        <div className="bg-stone-950 p-2.5 rounded-xl border border-emerald-500/30 font-mono text-[10px] space-y-1">
+                          <div className="flex justify-between items-center text-stone-400 border-b border-stone-800 pb-1">
+                            <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                              SMS DISPATCH SUCCESS
+                            </span>
+                            <span>To: {regPhone || regEmail}</span>
+                          </div>
+                          <p className="text-stone-300 pt-0.5">
+                            [SavoryStay Verification] Your OTP is <span className="text-amber-400 font-extrabold text-xs px-1.5 py-0.5 bg-stone-900 rounded border border-amber-500/40">{demoOtpCode}</span>. Enter code above to verify account.
+                          </p>
+                        </div>
                       )}
                     </div>
                   )}
