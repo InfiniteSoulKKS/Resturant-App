@@ -13,7 +13,7 @@ A production-grade, enterprise-ready **Spring Boot 3.2** backend application fea
 2. **Payment Gateway Integration**:
    - **Stripe Java SDK v24**: Payment Intent Creation & 3D Secure 2.0 Webhook Verification.
    - **PayPal Checkout SDK v2.0**: Express Checkout Order Creation & Capture.
-3. **PostgreSQL Relational Storage**:
+3. **MySQL Relational Storage**:
    - Entities for `User`, `MenuItem`, `Order`, `Payment`, and `OrderItem`.
    - Auto DDL Generation via Spring Data JPA + Hibernate.
 4. **REST APIs & CORS Configuration**:
@@ -52,7 +52,7 @@ springboot-backend/
         │           └── PaymentGatewayService.java
         └── resources/
             ├── application.yml                # Configuration & Secrets
-            └── schema.sql                     # PostgreSQL DDL Script
+            └── schema.sql                     # MySQL DDL Script
 ```
 
 ---
@@ -61,7 +61,7 @@ springboot-backend/
 
 - **Java Development Kit (JDK)**: Java 17 or Java 21.
 - **Apache Maven**: 3.8+ (or use `./mvnw` wrapper).
-- **PostgreSQL Database**: v14+ running locally or on Cloud SQL / Supabase.
+- **MySQL Database**: v8.0+ running locally or on Cloud SQL / AWS RDS / MySQL Workbench.
 
 ---
 
@@ -86,11 +86,11 @@ springboot-backend/
 ### 1. Configure Environment Variables (Optional or Use Defaults)
 
 ```bash
-export POSTGRES_HOST=localhost
-export POSTGRES_PORT=5432
-export POSTGRES_DB=savorystay_db
-export POSTGRES_USER=postgres
-export POSTGRES_PASSWORD=postgres
+export MYSQL_HOST=localhost
+export MYSQL_PORT=3306
+export MYSQL_DB=savorystay_db
+export MYSQL_USER=root
+export MYSQL_PASSWORD=root
 
 export STRIPE_SECRET_KEY=sk_test_51M...
 export PAYPAL_CLIENT_ID=AeX...
