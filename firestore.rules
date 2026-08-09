@@ -10,5 +10,12 @@ service cloud.firestore {
     match /prepItems/{prepId} {
       allow read, write: if true;
     }
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
+

@@ -12,7 +12,7 @@ import {
   orderBy,
   getDocFromServer
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfig from '../../../firebase-applet-config.json';
 import { MenuItem, Order, PrepItem } from '../types';
 import { INITIAL_MENU_ITEMS, INITIAL_ORDERS, INITIAL_PREP_ITEMS } from '../data/initialData';
 
