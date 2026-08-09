@@ -8,6 +8,7 @@ const mockUsersDB: Array<{
   id: string;
   username: string;
   email: string;
+  phone?: string;
   passwordHash: string;
   role: string;
   enabled: boolean;
@@ -309,6 +310,92 @@ async function startServer() {
         id: user.id,
         username: user.username,
         email: user.email,
+        role: user.role,
+        lastLogin: user.lastLogin
+      }
+    });
+  });
+
+  // User Login via OTP Endpoint (Mobile or Email)
+  app.post("/api/v1/auth/login-otp", (req, res) => {
+    const { phoneOrEmail, otp } = req.body;
+
+    if (!phoneOrEmail || !otp) {
+      return res.status(400).json({
+        error: "BAD_REQUEST",
+        message: "Mobile phone / Email and 6-digit OTP code are required."
+      });
+    }
+
+    const record = mockOtpDB.get(phoneOrEmail);
+
+    if (!record) {
+      return res.status(400).json({
+        error: "OTP_NOT_FOUND",
+        message: "No OTP was requested for this mobile number or email. Please click 'Send OTP'."
+      });
+    }
+
+    if (Date.now() > record.expiresAt) {
+      return res.status(400).json({
+        error: "OTP_EXPIRED",
+        message: "OTP code has expired. Please request a new OTP."
+      });
+    }
+
+    if (record.otp !== otp) {
+      return res.status(400).json({
+        error: "INVALID_OTP",
+        message: "Invalid 6-digit OTP code entered. Please try again."
+      });
+    }
+
+    // Find user by email or phone or create one if new
+    let user = mockUsersDB.find(
+      u => u.email === phoneOrEmail || (u as any).phone === phoneOrEmail || u.username === phoneOrEmail
+    );
+
+    if (!user) {
+      // Auto-create user logged in via OTP
+      const isEmail = phoneOrEmail.includes("@");
+      const generatedUsername = isEmail 
+        ? phoneOrEmail.split("@")[0] + "_" + Math.floor(100 + Math.random() * 900)
+        : "user_" + phoneOrEmail.replace(/[^0-9]/g, "").slice(-6);
+
+      user = {
+        id: "usr_" + Math.random().toString(36).substring(2, 10),
+        username: generatedUsername,
+        email: isEmail ? phoneOrEmail : `${generatedUsername}@savorystay.com`,
+        phone: !isEmail ? phoneOrEmail : "+91 98765 43210",
+        passwordHash: simulateBCryptHash("SavoryOtpLogin123!"),
+        role: "ROLE_CUSTOMER",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+      };
+      mockUsersDB.push(user);
+    } else {
+      user.lastLogin = new Date().toISOString();
+    }
+
+    // Clean up used OTP
+    mockOtpDB.delete(phoneOrEmail);
+
+    const tokens = generateJwtTokens(user);
+
+    res.json({
+      message: "OTP Authentication successful via Spring Security 6.2.",
+      token: tokens.accessToken,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      tokenType: "Bearer",
+      expiresIn: tokens.expiresIn,
+      refreshExpiresIn: tokens.refreshExpiresIn,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        phone: (user as any).phone || phoneOrEmail,
         role: user.role,
         lastLogin: user.lastLogin
       }

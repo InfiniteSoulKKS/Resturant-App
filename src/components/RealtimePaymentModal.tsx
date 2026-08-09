@@ -24,6 +24,7 @@ interface RealtimePaymentModalProps {
   cart: CartItem[];
   clearCart: () => void;
   onPaymentSuccess: (order: Order) => void;
+  currentUser?: any;
 }
 
 export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
@@ -32,10 +33,19 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
   cart,
   clearCart,
   onPaymentSuccess,
+  currentUser,
 }) => {
   const [customerName, setCustomerName] = useState('Rahul Sharma');
   const [customerPhone, setCustomerPhone] = useState('+91 98765 43210');
   const [customerEmail, setCustomerEmail] = useState('rahul.sharma@example.com');
+
+  React.useEffect(() => {
+    if (currentUser) {
+      if (currentUser.username) setCustomerName(currentUser.username);
+      if (currentUser.phone) setCustomerPhone(currentUser.phone);
+      if (currentUser.email) setCustomerEmail(currentUser.email);
+    }
+  }, [currentUser, isOpen]);
   const [orderType, setOrderType] = useState<'PICKUP' | 'DINE_IN'>('PICKUP');
   const [pickupTime, setPickupTime] = useState('30 Mins (Ready by 07:45 PM)');
   const [tableNumber, setTableNumber] = useState(4);

@@ -219,6 +219,7 @@ export default function App() {
         cart={cart}
         clearCart={clearCart}
         onPaymentSuccess={handlePaymentSuccess}
+        currentUser={currentUser}
       />
 
       {/* Bottom Mobile Navigation */}
