@@ -49,6 +49,145 @@ const mockUsersDB: Array<{
 
 const mockTransactionsDB: Array<any> = [];
 
+const mockMenuDB: Array<any> = [
+  {
+    id: 'm1',
+    title: 'Hyderabadi Dum Biryani',
+    description: 'Slow-cooked fragrant basmati rice layered with spiced tender chicken, saffron, and caramelised onions. Served with Mirchi ka Salan & Raita.',
+    price: 380,
+    category: 'Mains',
+    imageUrl: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&q=80&w=800',
+    status: 'Available',
+    tag: 'Chef Special',
+    isVeg: false,
+    spiceLevel: 'Spicy'
+  },
+  {
+    id: 'm2',
+    title: 'Paneer Butter Masala',
+    description: 'Cottage cheese cubes simmered in a rich, velvety tomato, butter, and cashew cream gravy with aromatic kasuri methi.',
+    price: 290,
+    category: 'Mains',
+    imageUrl: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?auto=format&fit=crop&q=80&w=800',
+    status: 'Available',
+    tag: 'Bestseller',
+    isVeg: true,
+    spiceLevel: 'Medium'
+  },
+  {
+    id: 'm3',
+    title: 'Amritsari Paneer Tikka',
+    description: 'Charcoal-grilled paneer cubes marinated in hung curd, carom seeds (ajwain), and mustard oil. Served with mint chutney.',
+    price: 240,
+    category: 'Starters',
+    imageUrl: 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?auto=format&fit=crop&q=80&w=800',
+    status: 'Available',
+    tag: 'Tandoor',
+    isVeg: true,
+    spiceLevel: 'Medium'
+  },
+  {
+    id: 'm4',
+    title: 'Butter Garlic Naan',
+    description: 'Refined flour flatbread baked fresh in clay tandoor oven, brushed with creamy garlic butter and coriander.',
+    price: 60,
+    category: 'Breads',
+    imageUrl: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&q=80&w=800',
+    status: 'Available',
+    tag: 'Fresh Tandoor',
+    isVeg: true,
+    spiceLevel: 'Mild'
+  },
+  {
+    id: 'm5',
+    title: 'Dal Makhani',
+    description: 'Overnight slow-cooked black lentils & red kidney beans enriched with white butter, fresh cream, and delicate spices.',
+    price: 260,
+    category: 'Mains',
+    imageUrl: 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&q=80&w=800',
+    status: 'Available',
+    tag: 'Classic',
+    isVeg: true,
+    spiceLevel: 'Mild'
+  },
+  {
+    id: 'm6',
+    title: 'Gulab Jamun with Rabri',
+    description: 'Warm, golden khoya dumplings soaked in cardamom sugar syrup, topped with chilled saffron rabri and pistachio flakes.',
+    price: 140,
+    category: 'Desserts',
+    imageUrl: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&q=80&w=800',
+    status: 'Available',
+    tag: 'Dessert',
+    isVeg: true,
+    spiceLevel: 'Mild'
+  },
+  {
+    id: 'm7',
+    title: 'Kesar Masala Chai',
+    description: 'Traditional Indian spiced milk tea infused with cardamom, ginger, cloves, and Kashmiri saffron threads.',
+    price: 60,
+    category: 'Beverages',
+    imageUrl: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&q=80&w=800',
+    status: 'Available',
+    tag: 'Hot Beverage',
+    isVeg: true,
+    spiceLevel: 'Mild'
+  }
+];
+
+const mockOrdersDB: Array<any> = [
+  {
+    id: 'ord_4092',
+    orderNumber: '#ORD-4092',
+    orderType: 'PICKUP',
+    pickupTime: '07:30 PM (Today)',
+    timeSlot: '07:30 PM',
+    customerName: 'Rahul Sharma',
+    customerPhone: '+91 98765 43210',
+    customerEmail: 'rahul.sharma@example.com',
+    items: [
+      { menuItem: { title: 'Hyderabadi Dum Biryani', price: 380, isVeg: false }, quantity: 2 },
+      { menuItem: { title: 'Butter Garlic Naan', price: 60, isVeg: true }, quantity: 4 }
+    ],
+    totalAmount: 1000,
+    paymentStatus: 'PAID',
+    paymentGateway: 'STRIPE',
+    orderStatus: 'PREPARING',
+    timestamp: new Date().toISOString()
+  }
+];
+
+const mockPrepItemsDB: Array<any> = [
+  {
+    id: 'p1',
+    dishTitle: 'Hyderabadi Dum Biryani',
+    requiredCount: 25,
+    preppedCount: 18,
+    unit: 'Portions',
+    estimatedTime: '45 mins',
+    status: 'In Progress'
+  },
+  {
+    id: 'p2',
+    dishTitle: 'Paneer Gravy Base',
+    requiredCount: 15,
+    preppedCount: 15,
+    unit: 'Liters',
+    estimatedTime: '20 mins',
+    status: 'Done'
+  },
+  {
+    id: 'p3',
+    dishTitle: 'Tandoori Marination',
+    requiredCount: 10,
+    preppedCount: 4,
+    unit: 'Kg',
+    estimatedTime: '30 mins',
+    status: 'Pending'
+  }
+];
+
 // In-memory OTP Store for SMS/WhatsApp/Email Verification
 const mockOtpDB = new Map<string, { otp: string; expiresAt: number; verified: boolean }>();
 
@@ -631,6 +770,102 @@ async function startServer() {
       orm: "Hibernate / Spring Data JPA",
       databaseDriver: "com.mysql.cj.jdbc.Driver"
     });
+  });
+
+  // ==========================================
+  // MENU MANAGEMENT REST ENDPOINTS (GET, POST, PUT, DELETE)
+  // ==========================================
+
+  app.get("/api/v1/menu", (req, res) => {
+    res.json(mockMenuDB);
+  });
+
+  app.post("/api/v1/menu", (req, res) => {
+    const item = req.body;
+    const newItem = {
+      ...item,
+      id: item.id || "m_" + Date.now(),
+      createdAt: new Date().toISOString()
+    };
+    mockMenuDB.push(newItem);
+    console.log(`[REST API POST /api/v1/menu] Created item: ${newItem.title}`);
+    res.status(201).json(newItem);
+  });
+
+  app.put("/api/v1/menu/:id", (req, res) => {
+    const { id } = req.params;
+    const index = mockMenuDB.findIndex(m => m.id === id);
+    if (index === -1) {
+      const newItem = { id, ...req.body };
+      mockMenuDB.push(newItem);
+      return res.json(newItem);
+    }
+    mockMenuDB[index] = { ...mockMenuDB[index], ...req.body };
+    console.log(`[REST API PUT /api/v1/menu/${id}] Updated item: ${mockMenuDB[index].title}`);
+    res.json(mockMenuDB[index]);
+  });
+
+  app.delete("/api/v1/menu/:id", (req, res) => {
+    const { id } = req.params;
+    const index = mockMenuDB.findIndex(m => m.id === id);
+    if (index !== -1) {
+      mockMenuDB.splice(index, 1);
+    }
+    console.log(`[REST API DELETE /api/v1/menu/${id}] Deleted item`);
+    res.json({ success: true, id });
+  });
+
+  // ==========================================
+  // ORDERS MANAGEMENT REST ENDPOINTS (GET, POST, PUT)
+  // ==========================================
+
+  app.get("/api/v1/orders", (req, res) => {
+    res.json(mockOrdersDB);
+  });
+
+  app.post("/api/v1/orders", (req, res) => {
+    const order = req.body;
+    const newOrder = {
+      ...order,
+      id: order.id || "ord_" + Date.now(),
+      timestamp: order.timestamp || new Date().toISOString()
+    };
+    mockOrdersDB.unshift(newOrder);
+    console.log(`[REST API POST /api/v1/orders] Order created: ${newOrder.orderNumber || newOrder.id}`);
+    res.status(201).json(newOrder);
+  });
+
+  app.put("/api/v1/orders/:id/status", (req, res) => {
+    const { id } = req.params;
+    const { orderStatus } = req.body;
+    const order = mockOrdersDB.find(o => o.id === id);
+    if (!order) {
+      const stub = { id, orderStatus, timestamp: new Date().toISOString() };
+      mockOrdersDB.push(stub);
+      return res.json(stub);
+    }
+    order.orderStatus = orderStatus;
+    console.log(`[REST API PUT /api/v1/orders/${id}/status] Status set to: ${orderStatus}`);
+    res.json(order);
+  });
+
+  // ==========================================
+  // CHEF PREP SUMMARY REST ENDPOINTS (GET, PUT)
+  // ==========================================
+
+  app.get("/api/v1/prep-summary", (req, res) => {
+    res.json(mockPrepItemsDB);
+  });
+
+  app.put("/api/v1/prep-summary/:id", (req, res) => {
+    const { id } = req.params;
+    const prep = mockPrepItemsDB.find(p => p.id === id);
+    if (prep) {
+      Object.assign(prep, req.body);
+      res.json(prep);
+    } else {
+      res.status(404).json({ error: "NOT_FOUND" });
+    }
   });
 
   // Vite middleware for development
