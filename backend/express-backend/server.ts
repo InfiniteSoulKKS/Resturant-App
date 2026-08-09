@@ -16,10 +16,20 @@ const mockUsersDB: Array<{
   lastLogin?: string;
 }> = [
   {
-    id: "usr_admin_01",
+    id: "usr_mgr_01",
+    username: "manager_admin",
+    email: "manager@savorystay.com",
+    phone: "+91 98765 00001",
+    passwordHash: "$2a$12$e0MYzXyjpJS7Pd0RVvHwHe8vX13uP0R8q7QZ.qKk3p1uX4lV9y4u6",
+    role: "ROLE_MANAGER",
+    enabled: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "usr_chef_01",
     username: "chef_executive",
     email: "chef@savorystay.com",
-    // Simulation of BCrypt hashed password for "Savory123!"
+    phone: "+91 98765 00002",
     passwordHash: "$2a$12$e0MYzXyjpJS7Pd0RVvHwHe8vX13uP0R8q7QZ.qKk3p1uX4lV9y4u6",
     role: "ROLE_CHEF",
     enabled: true,
@@ -29,6 +39,7 @@ const mockUsersDB: Array<{
     id: "usr_cust_01",
     username: "guest_gourmet",
     email: "guest@example.com",
+    phone: "+91 98765 43210",
     passwordHash: "$2a$12$9qX3p1uX4lV9y4u6e0MYzXyjpJS7Pd0RVvHwHe8vX13uP0R8q7QZ",
     role: "ROLE_CUSTOMER",
     enabled: true,
