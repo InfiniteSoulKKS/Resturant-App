@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "MenuItem": {
+      "title": "Menu Item",
+      "description": "Represents a dish or beverage on the restaurant menu",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "price": { "type": "number" },
+        "category": { "type": "string", "maxLength": 50 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["Available", "Sold Out"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "price", "category", "status"]
+    },
+    "Order": {
+      "title": "Pre-Booking Order",
+      "description": "Customer reservation and meal order",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string", "maxLength": 20 },
+        "tableNumber": { "type": "number" },
+        "guests": { "type": "number" },
+        "timeSlot": { "type": "string", "maxLength": 20 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "totalAmount": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["PENDING", "PROCESSING", "PAID", "FAILED"] },
+        "paymentMethod": { "type": "string", "maxLength": 50 },
+        "orderStatus": { "type": "string", "enum": ["NEW", "ACCEPTED", "PREPARING", "READY", "DECLINED"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["orderNumber", "customerName", "totalAmount", "paymentStatus", "orderStatus"]
+    },
+    "PrepItem": {
+      "title": "Chef Prep Summary Item",
+      "description": "Consolidated prep progress item for kitchen team",
+      "type": "object",
+      "properties": {
+        "itemName": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "maxLength": 50 },
+        "requiredCount": { "type": "number" },
+        "preppedCount": { "type": "number" },
+        "tag": { "type": "string", "maxLength": 50 },
+        "priority": { "type": "string", "enum": ["Normal", "Priority"] },
+        "imageUrl": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["itemName", "category", "requiredCount", "preppedCount"]
+    }
+  },
+  "firestore": {
+    "/menuItems/{itemId}": {
+      "schema": { "$ref": "#/entities/MenuItem" },
+      "description": "Restaurant menu items collection"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Pre-booking orders collection"
+    },
+    "/prepItems/{prepId}": {
+      "schema": { "$ref": "#/entities/PrepItem" },
+      "description": "Kitchen prep progress collection"
+    }
+  }
+}

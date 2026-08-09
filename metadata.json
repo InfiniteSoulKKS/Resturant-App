@@ -1,0 +1,8 @@
+{
+  "name": "Remix SavoryStay",
+  "description": "Culinary Operations System with menu management, customer pre-booking, real-time payment processing, chef prep summary, and live Firestore sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
