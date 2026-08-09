@@ -12,7 +12,7 @@ A production-grade, enterprise-ready **Spring Boot 3.2** backend application fea
    - Token creation (`JwtTokenProvider`) supporting User IDs & Custom Roles (`ROLE_CUSTOMER`, `ROLE_CHEF`, `ROLE_ADMIN`).
 2. **Payment Gateway Integration**:
    - **Stripe Java SDK v24**: Payment Intent Creation & 3D Secure 2.0 Webhook Verification.
-   - **PayPal Checkout SDK v1.10**: Express Checkout Order Creation & Capture.
+   - **PayPal Checkout SDK v2.0**: Express Checkout Order Creation & Capture.
 3. **PostgreSQL Relational Storage**:
    - Entities for `User`, `MenuItem`, `Order`, `Payment`, and `OrderItem`.
    - Auto DDL Generation via Spring Data JPA + Hibernate.

@@ -21,7 +21,7 @@
         <java.version>17</java.version>
         <jjwt.version>0.11.5</jjwt.version>
         <stripe.version>24.0.0</stripe.version>
-        <paypal.version>1.10.0</paypal.version>
+        <paypal.version>2.0.0</paypal.version>
     </properties>
 
     <dependencies>
