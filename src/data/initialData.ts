@@ -381,7 +381,7 @@ public class CulinaryOrderController {
     }
 }`;
 
-export const POSTGRESQL_SCHEMA_SQL = `-- PostgreSQL DDL Schema for SavoryStay Culinary Operations System
+export const MYSQL_SCHEMA_SQL = `-- MySQL DDL Schema for SavoryStay Culinary Operations System
 
 -- Users & Authentication Table (Spring Security)
 CREATE TABLE IF NOT EXISTS users (
@@ -391,8 +391,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL, -- Encoded via BCryptPasswordEncoder
     role VARCHAR(30) DEFAULT 'ROLE_CUSTOMER',
     enabled BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    last_login TIMESTAMP WITH TIME ZONE
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP NULL
 );
 
 CREATE TABLE IF NOT EXISTS menu_items (
@@ -403,7 +403,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
     category VARCHAR(50) NOT NULL,
     image_url VARCHAR(1024),
     status VARCHAR(20) DEFAULT 'Available',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -413,35 +413,39 @@ CREATE TABLE IF NOT EXISTS orders (
     guests INT NOT NULL,
     time_slot VARCHAR(20) NOT NULL,
     customer_name VARCHAR(100) NOT NULL,
-    user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+    user_id VARCHAR(64),
     total_amount DECIMAL(10, 2) NOT NULL,
     payment_status VARCHAR(20) DEFAULT 'PENDING',
     payment_method VARCHAR(50),
     payment_transaction_id VARCHAR(100),
     order_status VARCHAR(20) DEFAULT 'NEW',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS payments (
     transaction_id VARCHAR(100) PRIMARY KEY,
-    order_id VARCHAR(64) REFERENCES orders(id) ON DELETE CASCADE,
+    order_id VARCHAR(64),
     gateway VARCHAR(30) NOT NULL, -- STRIPE, PAYPAL, UPI
     amount DECIMAL(10, 2) NOT NULL,
     currency VARCHAR(10) DEFAULT 'USD',
     payment_status VARCHAR(30) DEFAULT 'PAID',
     card_last4 VARCHAR(4),
     client_secret VARCHAR(255),
-    gateway_raw_response JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    gateway_raw_response JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS order_items (
     id VARCHAR(64) PRIMARY KEY,
-    order_id VARCHAR(64) REFERENCES orders(id) ON DELETE CASCADE,
-    menu_item_id VARCHAR(64) REFERENCES menu_items(id),
+    order_id VARCHAR(64),
+    menu_item_id VARCHAR(64),
     title VARCHAR(255) NOT NULL,
     unit_price DECIMAL(10, 2) NOT NULL,
-    quantity INT NOT NULL
+    quantity INT NOT NULL,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)
 );
 
 CREATE TABLE IF NOT EXISTS prep_summary (
@@ -452,3 +456,5 @@ CREATE TABLE IF NOT EXISTS prep_summary (
     prepped_count INT DEFAULT 0,
     priority VARCHAR(20) DEFAULT 'Normal'
 );`;
+
+export const POSTGRESQL_SCHEMA_SQL = MYSQL_SCHEMA_SQL;

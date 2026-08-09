@@ -57,14 +57,14 @@ export const BackendInspectorModal: React.FC = () => {
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-green-400 animate-ping"></span>
               <span className="font-mono text-xs text-amber-400 font-bold uppercase tracking-wider">
-                Spring Boot 3.2.0 • Spring Security • PostgreSQL Architecture
+                Spring Boot 3.2.0 • Spring Security • MySQL Architecture
               </span>
             </div>
             <h2 className="text-2xl font-bold font-mono mt-1 text-white">
               SavoryStay Java Backend & Database Engine
             </h2>
             <p className="text-slate-400 text-xs font-mono mt-0.5">
-              Spring Security JWT Auth, Stripe/PayPal payment integrations, and PostgreSQL persistence.
+              Spring Security JWT Auth, Stripe/PayPal payment integrations, and MySQL persistence.
             </p>
           </div>
 
@@ -87,7 +87,7 @@ export const BackendInspectorModal: React.FC = () => {
           </div>
           <div>
             <span className="text-slate-500 block">Database:</span>
-            <span className="text-blue-300 font-bold">PostgreSQL 16.1</span>
+            <span className="text-blue-300 font-bold">MySQL 8.0</span>
           </div>
           <div>
             <span className="text-slate-500 block">Payment Gateways:</span>
@@ -150,7 +150,7 @@ export const BackendInspectorModal: React.FC = () => {
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
           }`}
         >
-          schema.sql (PostgreSQL DDL)
+          schema.sql (MySQL DDL)
         </button>
         <button
           onClick={() => setActiveTab('live_test')}

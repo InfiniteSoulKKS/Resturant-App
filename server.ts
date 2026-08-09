@@ -107,7 +107,7 @@ async function startServer() {
     res.json({
       service: "SavoryStay Culinary Operations Backend",
       framework: "Spring Boot 3.2.0 (Spring Security 6.2 enabled)",
-      database: "PostgreSQL 16.1",
+      database: "MySQL 8.0",
       security: "BCryptPasswordEncoder + JWT Authentication Filter",
       payments: "Stripe v14.0 & PayPal REST SDK Integration",
       status: "UP",
@@ -531,7 +531,7 @@ async function startServer() {
       springVersion: "3.2.0",
       security: "Spring Security 6.2 with BCrypt & JWT",
       orm: "Hibernate / Spring Data JPA",
-      databaseDriver: "org.postgresql.Driver"
+      databaseDriver: "com.mysql.cj.jdbc.Driver"
     });
   });
 
