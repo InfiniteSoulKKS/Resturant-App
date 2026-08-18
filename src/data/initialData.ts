@@ -3,6 +3,7 @@ import { MenuItem, Order, PrepItem, EstimatedRawMaterial } from '../types';
 export const INITIAL_MENU_ITEMS: MenuItem[] = [
   {
     id: 'm1',
+    restaurantId: '',
     title: 'Hyderabadi Dum Biryani',
     description: 'Slow-cooked fragrant basmati rice layered with spiced tender chicken, saffron, and caramelised onions. Served with Mirchi ka Salan & Raita.',
     price: 380,
@@ -15,6 +16,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
   },
   {
     id: 'm2',
+    restaurantId: '',
     title: 'Paneer Butter Masala',
     description: 'Cottage cheese cubes simmered in a rich, velvety tomato, butter, and cashew cream gravy with aromatic kasuri methi.',
     price: 290,
@@ -27,6 +29,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
   },
   {
     id: 'm3',
+    restaurantId: '',
     title: 'Amritsari Paneer Tikka',
     description: 'Charcoal-grilled paneer cubes marinated in hung curd, carom seeds (ajwain), and mustard oil. Served with mint chutney.',
     price: 240,
@@ -39,6 +42,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
   },
   {
     id: 'm4',
+    restaurantId: '',
     title: 'Butter Garlic Naan',
     description: 'Refined flour flatbread baked fresh in clay tandoor oven, brushed with creamy garlic butter and coriander.',
     price: 60,
@@ -51,6 +55,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
   },
   {
     id: 'm5',
+    restaurantId: '',
     title: 'Dal Makhani',
     description: 'Overnight slow-cooked black lentils & red kidney beans enriched with white butter, fresh cream, and delicate spices.',
     price: 260,
@@ -63,6 +68,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
   },
   {
     id: 'm6',
+    restaurantId: '',
     title: 'Gulab Jamun with Rabri',
     description: 'Warm, golden khoya dumplings soaked in cardamom sugar syrup, topped with chilled saffron rabri and pistachio flakes.',
     price: 140,
@@ -75,6 +81,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
   },
   {
     id: 'm7',
+    restaurantId: '',
     title: 'Kesar Masala Chai',
     description: 'Traditional Indian spiced milk tea infused with cardamom, ginger, cloves, and Kashmiri saffron threads.',
     price: 60,
@@ -91,6 +98,7 @@ export const INITIAL_ORDERS: Order[] = [
   {
     id: 'ord_4092',
     orderNumber: '#ORD-4092',
+    restaurantId: '',
     orderType: 'PICKUP',
     pickupTime: '07:30 PM (Today)',
     timeSlot: '07:30 PM',
@@ -114,6 +122,7 @@ export const INITIAL_ORDERS: Order[] = [
   {
     id: 'ord_4091',
     orderNumber: '#ORD-4091',
+    restaurantId: '',
     orderType: 'DINE_IN',
     tableNumber: 12,
     guests: 4,

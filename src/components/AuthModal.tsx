@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck,
   Lock,
@@ -11,18 +11,20 @@ import {
   X,
   LogOut,
   Smartphone,
-  Sparkles,
-  RefreshCw,
-  LogIn,
-  UserPlus,
+  Send,
 } from 'lucide-react';
+import * as api from '../lib/apiClient';
+import { storeToken, removeToken } from '../lib/tokenManager';
+import { formatRoles } from '../lib/roles';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: any;
-  onLoginSuccess: (user: any, token: string, refreshToken?: string) => void;
+  onLoginSuccess: (user: any, token: string) => void;
   onLogout: () => void;
+  /** Optional context shown to the user, e.g. "Please sign in to continue with your order." */
+  promptMessage?: string;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -31,44 +33,124 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   currentUser,
   onLoginSuccess,
   onLogout,
+  promptMessage,
 }) => {
   const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
-
-  // Login Method State ('OTP' or 'PASSWORD')
   const [loginMethod, setLoginMethod] = useState<'OTP' | 'PASSWORD'>('OTP');
-  const [loginPhoneOrEmail, setLoginPhoneOrEmail] = useState('+91 98765 43210');
+
+  // Login OTP State
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPhone, setLoginPhone] = useState('');
+  const [loginOtpChannel, setLoginOtpChannel] = useState<'EMAIL' | 'SMS' | 'WHATSAPP'>('EMAIL');
   const [loginOtpSent, setLoginOtpSent] = useState(false);
   const [loginOtpCode, setLoginOtpCode] = useState('');
-  const [loginDemoOtpCode, setLoginDemoOtpCode] = useState<string | null>(null);
 
-  // Login Form State
-  const [loginIdentifier, setLoginIdentifier] = useState('guest@example.com');
-  const [loginPassword, setLoginPassword] = useState('Savory123!');
+  // Login Password State
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
-  // Register Form State
+  // Register State
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regPhone, setRegPhone] = useState('+91 98765 43210');
+  const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [regRole, setRegRole] = useState<'ROLE_CUSTOMER' | 'ROLE_CHEF' | 'ROLE_ADMIN'>('ROLE_CUSTOMER');
+  const [regOtpChannel, setRegOtpChannel] = useState<'EMAIL' | 'SMS' | 'WHATSAPP'>('EMAIL');
+  const [regOtpSent, setRegOtpSent] = useState(false);
+  const [regOtpCode, setRegOtpCode] = useState('');
+  const [isRegOtpVerified, setIsRegOtpVerified] = useState(false);
+  const [alreadyExists, setAlreadyExists] = useState(false);
+  // Early availability warnings from GET /auth/check-availability (advisory only).
+  const [availability, setAvailability] = useState({
+    usernameTaken: false,
+    emailTaken: false,
+    phoneTaken: false,
+  });
+  // Guards against stale debounced responses overwriting newer ones.
+  const availabilityRequestId = useRef(0);
 
-  // OTP State
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [demoOtpCode, setDemoOtpCode] = useState<string | null>(null);
-  const [isOtpVerified, setIsOtpVerified] = useState(false);
-
-  // UI state
+  // UI State
   const [isLoading, setIsLoading] = useState(false);
   const [isOtpLoading, setIsOtpLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Debounced pre-registration availability check: warn the user as they type
+  // if the username/email/phone is already taken, BEFORE they spend an OTP.
+  useEffect(() => {
+    const id = ++availabilityRequestId.current;
+    const t = setTimeout(async () => {
+      const payload: { username?: string; email?: string; phone?: string } = {};
+      if (regUsername.trim()) payload.username = regUsername.trim();
+      if (regEmail.trim()) payload.email = regEmail.trim();
+      if (regPhone.trim()) payload.phone = regPhone.trim();
+      if (Object.keys(payload).length === 0) {
+        setAvailability({ usernameTaken: false, emailTaken: false, phoneTaken: false });
+        return;
+      }
+      try {
+        const result = await api.checkAvailability(payload);
+        // Ignore stale responses — only the latest request may update state.
+        if (availabilityRequestId.current === id) setAvailability(result);
+      } catch {
+        // Fail open on network errors so the button is never stuck disabled;
+        // the backend stays authoritative at submit time.
+        if (availabilityRequestId.current === id) {
+          setAvailability({ usernameTaken: false, emailTaken: false, phoneTaken: false });
+        }
+      }
+    }, 450);
+    return () => clearTimeout(t);
+  }, [regUsername, regEmail, regPhone]);
+
+  // Reset all form fields when the modal closes so stale data doesn't
+  // persist across logout → login cycles.
+  useEffect(() => {
+    if (!isOpen) {
+      // Login state
+      setLoginUsername('');
+      setLoginEmail('');
+      setLoginPhone('');
+      setLoginOtpSent(false);
+      setLoginOtpCode('');
+      setLoginIdentifier('');
+      setLoginPassword('');
+      // Register state
+      setRegUsername('');
+      setRegEmail('');
+      setRegPhone('');
+      setRegPassword('');
+      setRegOtpSent(false);
+      setRegOtpCode('');
+      setIsRegOtpVerified(false);
+      setAlreadyExists(false);
+      // UI state
+      setIsLoading(false);
+      setIsOtpLoading(false);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      // Reset to login mode
+      setAuthMode('LOGIN');
+      setLoginMethod('OTP');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
+  // ============ LOGIN OTP HANDLERS ============
   const handleSendLoginOtp = async () => {
-    if (!loginPhoneOrEmail) {
-      setErrorMessage("Please enter a mobile number or email address.");
+    if (!loginUsername) {
+      setErrorMessage("Please enter your username.");
+      return;
+    }
+
+    if (loginOtpChannel === 'EMAIL' && !loginEmail) {
+      setErrorMessage("Please enter your email for OTP.");
+      return;
+    }
+
+    if ((loginOtpChannel === 'SMS' || loginOtpChannel === 'WHATSAPP') && !loginPhone) {
+      setErrorMessage("Please enter your phone number for OTP.");
       return;
     }
 
@@ -77,26 +159,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/v1/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneOrEmail: loginPhoneOrEmail }),
-      });
+      // Login OTPs are only issued to accounts that exist — check the username
+      // first so an invalid user doesn't get an OTP (and a confusing later error).
+      const availability = await api.checkAvailability({ username: loginUsername.trim() });
+      if (!availability.usernameTaken) {
+        setErrorMessage("No account found with this username. Check the spelling or sign up instead.");
+        return;
+      }
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || 'Failed to send OTP.');
+      let response: api.OtpResponse;
+      if (loginOtpChannel === 'EMAIL') {
+        response = await api.sendOtpEmail(loginEmail, loginUsername.trim());
+      } else if (loginOtpChannel === 'SMS') {
+        response = await api.sendOtpSms(loginPhone, loginUsername.trim());
+      } else {
+        response = await api.sendOtpWhatsApp(loginPhone, loginUsername.trim());
       }
 
       setLoginOtpSent(true);
-      if (data.demoOtp) {
-        setLoginDemoOtpCode(data.demoOtp);
-        setLoginOtpCode(data.demoOtp); // Autofill for fast testing
+      if (response.demoOtp) {
+        // Demo mode: backend returned the code because no SMS/email provider is configured.
+        setLoginOtpCode(response.demoOtp);
+        setSuccessMessage(`🧪 Demo mode — your ${loginOtpChannel} OTP is ${response.demoOtp} (autofilled)`);
+      } else {
+        setSuccessMessage(`✅ OTP sent via ${loginOtpChannel}! Check your ${loginOtpChannel === 'EMAIL' ? 'email' : 'phone'}.`);
       }
-      setSuccessMessage(`📱 6-Digit Login OTP sent to ${loginPhoneOrEmail}! Code: ${data.demoOtp || 'Check SMS'}`);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to send OTP.');
+      setErrorMessage(err.message || `Failed to send ${loginOtpChannel} OTP.`);
     } finally {
       setIsOtpLoading(false);
     }
@@ -114,32 +203,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/v1/auth/login-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phoneOrEmail: loginPhoneOrEmail,
-          otp: loginOtpCode,
-        }),
+      const response = await api.loginWithOtp({
+        username: loginUsername,
+        otpCode: loginOtpCode,
+        channel: loginOtpChannel,
+        deliveryTarget: loginOtpChannel === 'EMAIL' ? loginEmail : loginPhone,
       });
 
-      const data = await res.json();
+      storeToken(response.token);
+      onLoginSuccess(response.user, response.token);
 
-      if (!res.ok) {
-        throw new Error(data.message || 'OTP authentication failed.');
-      }
-
-      if (data.refreshToken) {
-        localStorage.setItem('savory_refresh_token', data.refreshToken);
-      }
-      onLoginSuccess(data.user, data.token, data.refreshToken);
-
-      setSuccessMessage(`Welcome back, ${data.user.username}! Authenticated via OTP with 30-day session.`);
+      setSuccessMessage(`🎉 Welcome back, ${response.user.username}!`);
       setTimeout(() => {
         onClose();
       }, 1200);
     } catch (err: any) {
-      setErrorMessage(err.message || 'OTP verification error.');
+      setErrorMessage(err.message || 'OTP verification failed.');
     } finally {
       setIsLoading(false);
     }
@@ -147,47 +226,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!loginIdentifier || !loginPassword) {
+      setErrorMessage("Please enter username and password.");
+      return;
+    }
+
     setIsLoading(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          emailOrUsername: loginIdentifier,
-          password: loginPassword,
-        }),
+      const response = await api.loginWithPassword({
+        username: loginIdentifier,
+        password: loginPassword,
       });
 
-      const data = await res.json();
+      storeToken(response.token);
+      onLoginSuccess(response.user, response.token);
 
-      if (!res.ok) {
-        throw new Error(data.message || 'Login failed. Please check credentials.');
-      }
-
-      // Successful login - persist 30 days
-      if (data.refreshToken) {
-        localStorage.setItem('savory_refresh_token', data.refreshToken);
-      }
-      onLoginSuccess(data.user, data.token, data.refreshToken);
-
-      setSuccessMessage(`Welcome back, ${data.user.username}! Authenticated with 30-day persistent session.`);
+      setSuccessMessage(`🎉 Welcome back, ${response.user.username}!`);
       setTimeout(() => {
         onClose();
       }, 1200);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Authentication error.');
+      setErrorMessage(err.message || 'Login failed.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSendOtp = async () => {
-    const target = regPhone || regEmail;
-    if (!target) {
-      setErrorMessage("Please enter a valid mobile number or email address.");
+  // ============ REGISTRATION HANDLERS ============
+  const handleSendRegistrationOtp = async () => {
+    if (!regEmail && !regPhone) {
+      setErrorMessage("Please enter an email or phone number.");
+      return;
+    }
+
+    if (regOtpChannel === 'EMAIL' && !regEmail) {
+      setErrorMessage("Please enter your email for OTP.");
+      return;
+    }
+
+    if ((regOtpChannel === 'SMS' || regOtpChannel === 'WHATSAPP') && !regPhone) {
+      setErrorMessage("Please enter your phone number for OTP.");
       return;
     }
 
@@ -196,113 +277,149 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/v1/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneOrEmail: target }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || 'Failed to dispatch OTP.');
+      let response: api.OtpResponse;
+      if (regOtpChannel === 'EMAIL') {
+        response = await api.sendOtpEmail(regEmail);
+      } else if (regOtpChannel === 'SMS') {
+        response = await api.sendOtpSms(regPhone);
+      } else {
+        response = await api.sendOtpWhatsApp(regPhone);
       }
 
-      setOtpSent(true);
-      if (data.demoOtp) {
-        setDemoOtpCode(data.demoOtp);
-        setOtpCode(data.demoOtp); // Autofill for smooth testing
+      setRegOtpSent(true);
+      if (response.demoOtp) {
+        // Demo mode: backend returned the code because no SMS/email provider is configured.
+        setRegOtpCode(response.demoOtp);
+        setSuccessMessage(`🧪 Demo mode — your ${regOtpChannel} OTP is ${response.demoOtp} (autofilled)`);
+      } else {
+        setSuccessMessage(`✅ OTP sent via ${regOtpChannel}!`);
       }
-      setSuccessMessage(`📱 6-Digit OTP sent to ${target}! Code: ${data.demoOtp || 'Check SMS'}`);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to send OTP.');
+      setErrorMessage(err.message || `Failed to send ${regOtpChannel} OTP.`);
     } finally {
       setIsOtpLoading(false);
     }
   };
 
-  const handleVerifyOtp = async () => {
-    const target = regPhone || regEmail;
-    if (!target || !otpCode) {
-      setErrorMessage("Please enter the 6-digit OTP code.");
+  const handleVerifyRegistrationOtp = async () => {
+    if (!regOtpCode) {
+      setErrorMessage("Please enter the OTP code.");
       return;
     }
 
     setIsOtpLoading(true);
     setErrorMessage(null);
 
+    // The backend stores the OTP keyed by the delivery target (email or phone),
+    // so pass the same identifier used when sending.
+    const verifyId = regOtpChannel === 'EMAIL' ? regEmail : regPhone;
     try {
-      const res = await fetch('/api/v1/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneOrEmail: target, otp: otpCode }),
+      await api.verifyOtp({
+        userId: verifyId,
+        otpCode: regOtpCode,
+        channel: regOtpChannel,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || 'OTP verification failed.');
-      }
-
-      setIsOtpVerified(true);
-      setSuccessMessage("✅ Mobile/Email verified via OTP! Click 'Complete Registration' below.");
+      setIsRegOtpVerified(true);
+      setSuccessMessage("✅ OTP verified! Complete your registration below.");
     } catch (err: any) {
-      setErrorMessage(err.message || 'Invalid OTP entered.');
+      setErrorMessage(err.message || 'Invalid OTP code.');
     } finally {
       setIsOtpLoading(false);
+    }
+  };
+
+  /**
+   * The OTP on the backend is keyed to the exact email/phone it was sent to.
+   * If the user edits their contact after sending/verifying an OTP, the old
+   * code is meaningless for the new address — reset the OTP state so they must
+   * send and verify a fresh code instead of hitting a confusing backend error.
+   */
+  const handleRegContactChanged = () => {
+    if (regOtpSent || isRegOtpVerified) {
+      setIsRegOtpVerified(false);
+      setRegOtpSent(false);
+      setRegOtpCode('');
+      setSuccessMessage(null);
+      setErrorMessage('Contact changed — a new OTP is required for the updated email/phone.');
     }
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!otpSent) {
-      setErrorMessage("Please send and verify OTP before completing registration.");
+    if (!regUsername || !regEmail || !regPassword) {
+      setErrorMessage("Please fill username, email, and password.");
+      return;
+    }
+
+    if (!isRegOtpVerified) {
+      setErrorMessage("Please verify OTP before registering.");
+      return;
+    }
+
+    // Belt-and-suspenders: block submit if the contact is already taken (the
+    // backend re-checks authoritatively too, but avoid wasting an OTP).
+    if (
+      (regOtpChannel === 'EMAIL' && availability.emailTaken) ||
+      ((regOtpChannel === 'SMS' || regOtpChannel === 'WHATSAPP') && availability.phoneTaken)
+    ) {
+      setErrorMessage("This contact is already registered. Please sign in instead.");
+      setAlreadyExists(true);
       return;
     }
 
     setIsLoading(true);
     setErrorMessage(null);
+    setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: regUsername,
-          email: regEmail,
-          phone: regPhone,
-          password: regPassword,
-          role: regRole,
-          otp: otpCode,
-        }),
+      const response = await api.registerUser({
+        username: regUsername,
+        email: regEmail,
+        password: regPassword,
+        phone: regPhone || undefined,
+        otpCode: regOtpCode,
+        otpChannel: regOtpChannel,
       });
 
-      const data = await res.json();
+      setAlreadyExists(false);
+      storeToken(response.token);
+      onLoginSuccess(response.user, response.token);
 
-      if (!res.ok) {
-        throw new Error(data.message || 'Registration failed.');
-      }
-
-      if (data.refreshToken) {
-        localStorage.setItem('savory_refresh_token', data.refreshToken);
-      }
-      onLoginSuccess(data.user, data.token, data.refreshToken);
-
-      setSuccessMessage(`Verified registration complete! Logged in as ${data.user.username} (${data.user.role}) for 30 days.`);
+      setSuccessMessage(`🎉 Registration successful! Welcome, ${response.user.username}!`);
       setTimeout(() => {
         onClose();
       }, 1200);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Registration error.');
+      const msg = err.message || 'Registration failed.';
+      setErrorMessage(msg);
+      // The account already exists (email/username/phone in use) — point the
+      // user at signing in instead of leaving them stuck on the form.
+      setAlreadyExists(/already (registered|in use|taken)|already exists/i.test(msg));
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleLogout = () => {
+    removeToken();
+    onLogout();
+  };
+
+  /** Jumps to the Sign In tab, pre-filling the identifier with the offending contact. */
+  const switchToSignIn = (prefill?: string) => {
+    setAuthMode('LOGIN');
+    setAlreadyExists(false);
+    if (prefill) setLoginIdentifier(prefill);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+  };
+
+  // ============ JSX RENDERING ============
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-md overflow-y-auto">
-      <div className="bg-stone-900/95 border border-stone-800 rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl relative my-8 text-stone-100">
+      <div className="bg-stone-900/95 border border-stone-800 rounded-3xl max-w-2xl w-full p-6 md:p-8 shadow-2xl relative my-8 text-stone-100">
         {/* Header */}
         <div className="flex justify-between items-center pb-4 border-b border-stone-800">
           <div className="flex items-center gap-2.5">
@@ -310,8 +427,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold font-serif text-stone-100 tracking-tight">Authentication & Security</h3>
-              <p className="text-[10px] font-mono text-emerald-400">SMS / WhatsApp OTP • 30-Day Session</p>
+              <h3 className="text-base font-bold font-serif text-stone-100">Authentication</h3>
+              <p className="text-[10px] font-mono text-emerald-400">Spring Boot Backend • JWT Auth</p>
             </div>
           </div>
           <button
@@ -322,7 +439,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </div>
 
-        {/* Feedback Messages */}
+        {/* Messages */}
         {errorMessage && (
           <div className="mt-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
@@ -337,58 +454,65 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {/* LOGGED IN USER STATE */}
+        {promptMessage && !currentUser && (
+          <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-400 flex items-center gap-2">
+            <Lock className="w-4 h-4 shrink-0" />
+            <span>{promptMessage}</span>
+          </div>
+        )}
+
+        {/* When registration fails because the account already exists, offer an escape hatch into login. */}
+        {alreadyExists && (
+          <button
+            type="button"
+            onClick={() => switchToSignIn(regEmail)}
+            className="mt-2 w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-bold rounded-xl border border-amber-500/30 transition-colors cursor-pointer flex items-center justify-center gap-2"
+          >
+            This account already exists — Sign in instead →
+          </button>
+        )}
+
+        {/* LOGGED IN STATE */}
         {currentUser ? (
           <div className="py-6 space-y-5">
             <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800 space-y-3">
               <div className="flex justify-between items-center pb-3 border-b border-stone-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-amber-500 text-stone-950 font-bold rounded-xl flex items-center justify-center text-lg uppercase shadow-md shadow-amber-500/20">
+                  <div className="w-10 h-10 bg-amber-500 text-stone-950 font-bold rounded-xl flex items-center justify-center uppercase shadow-md shadow-amber-500/20">
                     {currentUser.username ? currentUser.username.charAt(0) : 'U'}
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-stone-100">{currentUser.username}</h4>
-                    <p className="text-xs text-stone-400 font-mono">{currentUser.email}</p>
+                    <p className="text-xs text-stone-400">{currentUser.email}</p>
                   </div>
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                  {currentUser.role || 'ROLE_CUSTOMER'}
+                  {formatRoles(currentUser.role)}
                 </span>
-              </div>
-
-              <div className="text-[11px] font-mono text-stone-400 space-y-1.5 pt-1">
-                <div className="flex justify-between">
-                  <span>Session Type:</span>
-                  <span className="text-emerald-400 font-bold">30-Day Persistent Token</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Background Refresh:</span>
-                  <span className="text-amber-400 font-bold">Auto-Renew Enabled</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>OTP Verification:</span>
-                  <span className="text-emerald-400">SMS / WhatsApp Verified</span>
-                </div>
               </div>
             </div>
 
             <button
               type="button"
-              onClick={onLogout}
-              className="w-full py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-bold rounded-xl border border-stone-700 transition-colors cursor-pointer flex items-center justify-center gap-2"
+              onClick={handleLogout}
+              className="w-full py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-bold rounded-xl border border-rose-500/30 transition-colors cursor-pointer flex items-center justify-center gap-2"
             >
-              <LogOut className="w-4 h-4 text-stone-400" />
-              <span>Sign Out Session</span>
+              <LogOut className="w-4 h-4" />
+              <span>Sign Out</span>
             </button>
           </div>
         ) : (
-          /* LOG IN / REGISTER TABS AND FORM */
+          /* LOGIN / REGISTER TABS */
           <div className="pt-4 space-y-4">
             {/* Mode Switcher */}
             <div className="grid grid-cols-2 p-1 bg-stone-950 rounded-2xl border border-stone-800 text-xs font-medium">
               <button
                 type="button"
-                onClick={() => { setAuthMode('LOGIN'); setErrorMessage(null); }}
+                onClick={() => {
+                  setAuthMode('LOGIN');
+                  setErrorMessage(null);
+                  setAlreadyExists(false);
+                }}
                 className={`py-2 rounded-xl transition-all cursor-pointer ${
                   authMode === 'LOGIN'
                     ? 'bg-amber-500 text-stone-950 font-bold shadow'
@@ -399,346 +523,296 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => { setAuthMode('REGISTER'); setErrorMessage(null); }}
+                onClick={() => {
+                  setAuthMode('REGISTER');
+                  setErrorMessage(null);
+                  setAlreadyExists(false);
+                }}
                 className={`py-2 rounded-xl transition-all cursor-pointer ${
                   authMode === 'REGISTER'
                     ? 'bg-amber-500 text-stone-950 font-bold shadow'
                     : 'text-stone-400 hover:text-stone-100'
                 }`}
               >
-                Register with OTP
+                Sign Up
               </button>
             </div>
 
-            {authMode === 'LOGIN' ? (
-              <div className="space-y-4 text-xs">
-                {/* Login Method Sub-toggle */}
-                <div className="flex gap-2 p-1 bg-stone-950/80 rounded-xl border border-stone-800 text-[11px]">
+            {/* LOGIN MODE */}
+            {authMode === 'LOGIN' && (
+              <div className="space-y-4">
+                {/* Login Method Switcher */}
+                <div className="grid grid-cols-2 p-1 bg-stone-900 rounded-xl border border-stone-800 text-xs font-medium">
                   <button
                     type="button"
-                    onClick={() => { setLoginMethod('OTP'); setErrorMessage(null); }}
-                    className={`flex-1 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    onClick={() => {
+                      setLoginMethod('OTP');
+                      setErrorMessage(null);
+                    }}
+                    className={`py-1.5 rounded-lg transition-all cursor-pointer ${
                       loginMethod === 'OTP'
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                        : 'text-stone-400 hover:text-stone-200'
+                        ? 'bg-emerald-500/20 text-emerald-400 font-bold'
+                        : 'text-stone-400 hover:text-stone-100'
                     }`}
                   >
-                    <Smartphone className="w-3.5 h-3.5" />
-                    <span>OTP Login (SMS / Phone)</span>
+                    OTP Login
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setLoginMethod('PASSWORD'); setErrorMessage(null); }}
-                    className={`flex-1 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    onClick={() => {
+                      setLoginMethod('PASSWORD');
+                      setErrorMessage(null);
+                    }}
+                    className={`py-1.5 rounded-lg transition-all cursor-pointer ${
                       loginMethod === 'PASSWORD'
-                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                        : 'text-stone-400 hover:text-stone-200'
+                        ? 'bg-emerald-500/20 text-emerald-400 font-bold'
+                        : 'text-stone-400 hover:text-stone-100'
                     }`}
                   >
-                    <KeyRound className="w-3.5 h-3.5" />
-                    <span>Password Login</span>
+                    Password Login
                   </button>
                 </div>
 
-                {loginMethod === 'OTP' ? (
+                {/* OTP LOGIN */}
+                {loginMethod === 'OTP' && (
                   <form onSubmit={handleLoginWithOtpSubmit} className="space-y-3">
-                    <div>
-                      <label className="block text-stone-400 font-medium mb-1">
-                        Mobile Phone (+91) or Email Address
-                      </label>
+                    <input
+                      type="text"
+                      placeholder="Username"
+                      value={loginUsername}
+                      onChange={(e) => setLoginUsername(e.target.value)}
+                      className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                    />
+
+                    {/* OTP Channel Selector */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['EMAIL', 'SMS', 'WHATSAPP'] as const).map((channel) => (
+                        <button
+                          key={channel}
+                          type="button"
+                          onClick={() => setLoginOtpChannel(channel)}
+                          className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            loginOtpChannel === channel
+                              ? 'bg-amber-500 text-stone-950'
+                              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+                          }`}
+                        >
+                          {channel}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Email Input */}
+                    {loginOtpChannel === 'EMAIL' && (
                       <input
-                        type="text"
-                        required
-                        value={loginPhoneOrEmail}
-                        onChange={(e) => setLoginPhoneOrEmail(e.target.value)}
-                        placeholder="+91 98765 43210 or guest@example.com"
-                        className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl px-3 py-2 text-stone-100 font-mono"
+                        type="email"
+                        placeholder="Your email"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
                       />
-                    </div>
+                    )}
 
-                    {/* OTP Box */}
-                    <div className="bg-stone-950 p-3 rounded-2xl border border-stone-800 space-y-2">
-                      <div className="flex justify-between items-center text-[11px]">
-                        <span className="font-bold text-emerald-400 font-mono flex items-center gap-1">
-                          <Smartphone className="w-3.5 h-3.5" />
-                          6-Digit OTP Verification
-                        </span>
-                        {!loginOtpSent ? (
-                          <button
-                            type="button"
-                            onClick={handleSendLoginOtp}
-                            disabled={isOtpLoading}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-all text-[10px] cursor-pointer"
-                          >
-                            {isOtpLoading ? "Sending..." : "Send OTP"}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={handleSendLoginOtp}
-                            className="text-[10px] text-stone-400 hover:text-stone-100 underline cursor-pointer"
-                          >
-                            Resend OTP
-                          </button>
-                        )}
-                      </div>
+                    {/* Phone Input */}
+                    {(loginOtpChannel === 'SMS' || loginOtpChannel === 'WHATSAPP') && (
+                      <input
+                        type="tel"
+                        placeholder="Phone (+919876543210)"
+                        value={loginPhone}
+                        onChange={(e) => setLoginPhone(e.target.value)}
+                        className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                      />
+                    )}
 
-                      {loginOtpSent && (
-                        <div className="space-y-1.5">
-                          <input
-                            type="text"
-                            maxLength={6}
-                            required
-                            value={loginOtpCode}
-                            onChange={(e) => setLoginOtpCode(e.target.value)}
-                            placeholder="Enter 6-Digit OTP"
-                            className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-2 text-stone-100 font-mono text-center tracking-widest text-sm font-bold focus:border-emerald-500 focus:outline-none"
-                          />
-                          {loginDemoOtpCode && (
-                            <p className="text-[10px] text-emerald-400 font-mono">
-                              Simulated SMS OTP Code: <span className="font-bold underline">{loginDemoOtpCode}</span>
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isLoading || !loginOtpSent}
-                      className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
-                    >
-                      {isLoading ? (
-                        <span className="w-4 h-4 border-2 border-stone-950/20 border-t-stone-950 rounded-full animate-spin"></span>
-                      ) : (
-                        <LogIn className="w-4 h-4" />
-                      )}
-                      <span>Verify & Sign In via OTP</span>
-                    </button>
+                    {!loginOtpSent ? (
+                      <button
+                        type="button"
+                        onClick={handleSendLoginOtp}
+                        disabled={isOtpLoading}
+                        className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold rounded-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        {isOtpLoading ? 'Sending...' : 'Send OTP'}
+                      </button>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          placeholder="6-digit OTP code"
+                          maxLength={6}
+                          value={loginOtpCode}
+                          onChange={(e) => setLoginOtpCode(e.target.value.replace(/\D/g, ''))}
+                          className="w-full px-3 py-2 bg-stone-800 border border-emerald-500/30 rounded-lg text-xs text-center text-stone-100 placeholder-stone-500 focus:outline-none focus:border-emerald-500 tracking-widest"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isLoading || !loginOtpCode}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50"
+                        >
+                          {isLoading ? 'Verifying...' : 'Verify & Login'}
+                        </button>
+                      </>
+                    )}
                   </form>
-                ) : (
-                  <form onSubmit={handleLoginSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-stone-400 font-medium mb-1">
-                        Email or Username
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={loginIdentifier}
-                        onChange={(e) => setLoginIdentifier(e.target.value)}
-                        placeholder="guest@example.com or chef_executive"
-                        className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl px-3 py-2.5 text-stone-100"
-                      />
-                    </div>
+                )}
 
-                    <div>
-                      <label className="block text-stone-400 font-medium mb-1">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl px-3 py-2.5 text-stone-100"
-                      />
-                    </div>
-
-                    <div className="bg-stone-950 p-3 rounded-2xl border border-stone-800 space-y-1.5">
-                      <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider block">
-                        Quick Demo Logins
-                      </span>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLoginIdentifier('chef_executive');
-                            setLoginPassword('Savory123!');
-                          }}
-                          className="text-[10px] px-2.5 py-1 bg-stone-800 hover:bg-stone-700 text-amber-300 rounded-lg border border-stone-700 font-mono cursor-pointer"
-                        >
-                          Chef Admin
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLoginIdentifier('guest@example.com');
-                            setLoginPassword('Savory123!');
-                          }}
-                          className="text-[10px] px-2.5 py-1 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded-lg border border-stone-700 font-mono cursor-pointer"
-                        >
-                          Customer Guest
-                        </button>
-                      </div>
-                    </div>
-
+                {/* PASSWORD LOGIN */}
+                {loginMethod === 'PASSWORD' && (
+                  <form onSubmit={handleLoginSubmit} className="space-y-3">
+                    <input
+                      type="text"
+                      placeholder="Username or Email"
+                      value={loginIdentifier}
+                      onChange={(e) => setLoginIdentifier(e.target.value)}
+                      className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                    />
+                    <input
+                      type="password"
+                      placeholder="Password"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                    />
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50"
                     >
-                      {isLoading ? (
-                        <span className="w-4 h-4 border-2 border-stone-950/20 border-t-stone-950 rounded-full animate-spin"></span>
-                      ) : (
-                        <LogIn className="w-4 h-4" />
-                      )}
-                      <span>Sign In with Password</span>
+                      {isLoading ? 'Logging in...' : 'Login'}
                     </button>
                   </form>
                 )}
               </div>
-            ) : (
-              <form onSubmit={handleRegisterSubmit} className="space-y-3 text-xs">
-                <div>
-                  <label className="block text-stone-400 font-medium mb-1">
-                    Username
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={regUsername}
-                    onChange={(e) => setRegUsername(e.target.value)}
-                    placeholder="e.g. rahul_sharma"
-                    className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl px-3 py-2 text-stone-100"
-                  />
-                </div>
+            )}
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-stone-400 font-medium mb-1">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      placeholder="rahul@example.com"
-                      className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl px-3 py-2 text-stone-100"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-stone-400 font-medium mb-1">
-                      Mobile (+91)
-                    </label>
-                    <input
-                      type="tel"
-                      required
-                      value={regPhone}
-                      onChange={(e) => setRegPhone(e.target.value)}
-                      placeholder="+91 98765 43210"
-                      className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl px-3 py-2 text-stone-100 font-mono"
-                    />
-                  </div>
-                </div>
+            {/* REGISTER MODE */}
+            {authMode === 'REGISTER' && (
+              <form onSubmit={handleRegisterSubmit} className="space-y-3">
+                <input
+                  type="text"
+                  placeholder="Username"
+                  value={regUsername}
+                  onChange={(e) => setRegUsername(e.target.value)}
+                  className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                />
+                {availability.usernameTaken && (
+                  <p className="text-[10px] text-rose-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" /> This username is already taken — try another.
+                  </p>
+                )}
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={regEmail}
+                  onChange={(e) => {
+                    setRegEmail(e.target.value);
+                    handleRegContactChanged();
+                  }}
+                  className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                />
+                {availability.emailTaken && (
+                  <p className="text-[10px] text-rose-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" /> This email is already registered.{' '}
+                    <button
+                      type="button"
+                      onClick={() => switchToSignIn(regEmail)}
+                      className="underline font-bold hover:text-rose-300 cursor-pointer"
+                    >
+                      Sign in instead
+                    </button>
+                  </p>
+                )}
+                <input
+                  type="tel"
+                  placeholder="Phone (optional, e.g., +919876543210)"
+                  value={regPhone}
+                  onChange={(e) => {
+                    setRegPhone(e.target.value);
+                    handleRegContactChanged();
+                  }}
+                  className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                />
+                {availability.phoneTaken && (
+                  <p className="text-[10px] text-rose-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" /> This phone is already registered.
+                  </p>
+                )}
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={regPassword}
+                  onChange={(e) => setRegPassword(e.target.value)}
+                  className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                />
 
-                <div>
-                  <label className="block text-stone-400 font-medium mb-1">
-                    Password (BCrypt Hashed)
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={regPassword}
-                    onChange={(e) => setRegPassword(e.target.value)}
-                    placeholder="Minimum 8 characters"
-                    className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl px-3 py-2 text-stone-100"
-                  />
-                </div>
+                {!isRegOtpVerified ? (
+                  <>
+                    {/* OTP Channel for Registration */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['EMAIL', 'SMS', 'WHATSAPP'] as const).map((channel) => (
+                        <button
+                          key={channel}
+                          type="button"
+                          onClick={() => setRegOtpChannel(channel)}
+                          className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            regOtpChannel === channel
+                              ? 'bg-amber-500 text-stone-950'
+                              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+                          }`}
+                        >
+                          {channel}
+                        </button>
+                      ))}
+                    </div>
 
-                <div>
-                  <label className="block text-stone-400 font-medium mb-1">
-                    User Role
-                  </label>
-                  <select
-                    value={regRole}
-                    onChange={(e: any) => setRegRole(e.target.value)}
-                    className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl px-3 py-2 text-stone-100 font-mono"
-                  >
-                    <option value="ROLE_CUSTOMER">ROLE_CUSTOMER (Dining Guest)</option>
-                    <option value="ROLE_CHEF">ROLE_CHEF (Kitchen Operations)</option>
-                    <option value="ROLE_ADMIN">ROLE_ADMIN (Restaurant Manager)</option>
-                  </select>
-                </div>
-
-                {/* OTP Verification Box */}
-                <div className="bg-stone-950 p-3 rounded-2xl border border-stone-800 space-y-2">
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="font-bold text-emerald-400 font-mono flex items-center gap-1">
-                      <Smartphone className="w-3.5 h-3.5" />
-                      SMS / WhatsApp OTP
-                    </span>
-                    {!otpSent ? (
+                    {!regOtpSent ? (
                       <button
                         type="button"
-                        onClick={handleSendOtp}
-                        disabled={isOtpLoading}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-all text-[10px] cursor-pointer"
+                        onClick={handleSendRegistrationOtp}
+                        disabled={
+                          isOtpLoading ||
+                          (regOtpChannel === 'EMAIL' && availability.emailTaken) ||
+                          ((regOtpChannel === 'SMS' || regOtpChannel === 'WHATSAPP') && availability.phoneTaken)
+                        }
+                        className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold rounded-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                       >
-                        {isOtpLoading ? "Sending..." : "Send OTP"}
+                        <Send className="w-3.5 h-3.5" />
+                        {isOtpLoading ? 'Sending...' : 'Send OTP'}
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={handleSendOtp}
-                        className="text-[10px] text-stone-400 hover:text-stone-100 underline cursor-pointer"
-                      >
-                        Resend OTP
-                      </button>
-                    )}
-                  </div>
-
-                  {otpSent && (
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
+                      <>
                         <input
                           type="text"
+                          placeholder="6-digit OTP code"
                           maxLength={6}
-                          value={otpCode}
-                          onChange={(e) => setOtpCode(e.target.value)}
-                          placeholder="6-Digit OTP"
-                          className="flex-1 bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-stone-100 font-mono text-center tracking-widest text-sm font-bold"
+                          value={regOtpCode}
+                          onChange={(e) => setRegOtpCode(e.target.value.replace(/\D/g, ''))}
+                          className="w-full px-3 py-2 bg-stone-800 border border-emerald-500/30 rounded-lg text-xs text-center text-stone-100 placeholder-stone-500 focus:outline-none focus:border-emerald-500 tracking-widest"
                         />
                         <button
                           type="button"
-                          onClick={handleVerifyOtp}
-                          disabled={isOtpLoading || isOtpVerified}
-                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                            isOtpVerified
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-amber-500 hover:bg-amber-400 text-stone-950'
-                          }`}
+                          onClick={handleVerifyRegistrationOtp}
+                          disabled={isOtpLoading || !regOtpCode}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50"
                         >
-                          {isOtpVerified ? "Verified ✓" : "Verify"}
+                          {isOtpLoading ? 'Verifying...' : 'Verify OTP'}
                         </button>
-                      </div>
-                      {demoOtpCode && (
-                        <p className="text-[10px] text-emerald-400 font-mono">
-                          Simulated SMS OTP Code: <span className="font-bold underline">{demoOtpCode}</span>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-stone-950 p-2 rounded-xl border border-stone-800 text-[10px] font-mono text-stone-400 flex items-center justify-between">
-                  <span>🔒 30-Day Session Lifetime</span>
-                  <span className="text-emerald-400">Background JWT Auto-Refresh</span>
-                </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-400 font-bold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    OTP Verified ✓
+                  </div>
+                )}
 
                 <button
                   type="submit"
-                  disabled={isLoading || !otpSent}
-                  className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+                  disabled={isLoading || !isRegOtpVerified}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50"
                 >
-                  {isLoading ? (
-                    <span className="w-4 h-4 border-2 border-stone-950/20 border-t-stone-950 rounded-full animate-spin"></span>
-                  ) : (
-                    <UserPlus className="w-4 h-4" />
-                  )}
-                  <span>Complete Verified Registration</span>
+                  {isLoading ? 'Registering...' : 'Complete Registration'}
                 </button>
               </form>
             )}
@@ -748,5 +822,3 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     </div>
   );
 };
-
-

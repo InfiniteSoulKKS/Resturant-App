@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { MenuItem, Category, CartItem } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { MenuItem, Category, CartItem, PreOrderDateOption } from '../types';
+import { getPreOrderDates } from '../lib/apiClient';
 import {
   Plus,
   Minus,
@@ -12,6 +13,11 @@ import {
   ChefHat,
   Clock,
   Award,
+  LogIn,
+  CalendarClock,
+  CheckCircle2,
+  XCircle,
+  Loader2,
 } from 'lucide-react';
 
 interface CustomerMenuViewProps {
@@ -22,6 +28,14 @@ interface CustomerMenuViewProps {
   addToCart: (item: MenuItem) => void;
   removeFromCart: (itemId: string) => void;
   onProceedToPayment: () => void;
+  /** False for staff accounts — hides the ordering flow (staff manage the kitchen). */
+  allowOrdering?: boolean;
+  /** Opens the auth modal so a signed-in staff member can switch to a customer account. */
+  onOpenAuth?: () => void;
+  /** Current restaurant scope — used to load the pre-order availability calendar. */
+  restaurantId?: string;
+  /** Called when the customer picks a date in the calendar ('' when none). */
+  onPreOrderDateChange?: (date: string) => void;
 }
 
 const CATEGORIES: Category[] = ['All Items', 'Starters', 'Mains', 'Breads', 'Desserts', 'Beverages'];
@@ -34,9 +48,67 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
   addToCart,
   removeFromCart,
   onProceedToPayment,
+  allowOrdering = true,
+  onOpenAuth,
+  restaurantId,
+  onPreOrderDateChange,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<Category>('All Items');
   const [dietFilter, setDietFilter] = useState<'ALL' | 'VEG' | 'NON_VEG'>('ALL');
+
+  // Pre-order availability calendar — surfaced on the menu itself so customers
+  // can see which upcoming days dishes can be pre-ordered before checkout.
+  const [preOrderDates, setPreOrderDates] = useState<PreOrderDateOption[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [dishFilter, setDishFilter] = useState<string>(''); // '' = all dishes
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!restaurantId || menuItems.length === 0) return;
+    let cancelled = false;
+    setCalendarLoading(true);
+    setCalendarError(null);
+    getPreOrderDates({
+      restaurantId,
+      menuItemIds: menuItems.map((m) => m.id),
+    })
+      .then((dates) => {
+        if (cancelled) return;
+        setPreOrderDates(dates);
+        setSelectedDate((prev) => prev && dates.some((d) => d.date === prev) ? prev : (dates[0]?.date || ''));
+      })
+      .catch((err) => {
+        if (!cancelled) setCalendarError(err?.message || 'Could not load pre-order availability');
+      })
+      .finally(() => {
+        if (!cancelled) setCalendarLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [restaurantId, menuItems]);
+
+  // Filter the calendar to dates where the chosen dish is pre-orderable.
+  const filteredDates = useMemo(() => {
+    if (!dishFilter) return preOrderDates;
+    return preOrderDates.filter((d) =>
+      d.dishes.some((x) => x.menuItemId === dishFilter && x.available)
+    );
+  }, [preOrderDates, dishFilter]);
+
+  // Keep the selection valid under the dish filter, and surface the chosen
+  // date to the parent so checkout can preselect it.
+  useEffect(() => {
+    if (filteredDates.length > 0 && !filteredDates.some((d) => d.date === selectedDate)) {
+      setSelectedDate(filteredDates[0].date);
+    } else if (filteredDates.length === 0 && selectedDate) {
+      setSelectedDate('');
+    }
+  }, [filteredDates, selectedDate]);
+
+  useEffect(() => {
+    onPreOrderDateChange?.(selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
 
   const filteredItems = menuItems.filter((item) => {
     const matchesSearch =
@@ -58,6 +130,55 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
 
   const totalItemCount = cart.reduce((sum, ci) => sum + ci.quantity, 0);
   const totalCartPrice = cart.reduce((sum, ci) => sum + ci.menuItem.price * ci.quantity, 0);
+
+  /** "Wed, 20 Aug" from a yyyy-MM-dd string (business-day labels, IST-safe). */
+  const prettyDate = (dateStr: string): string => {
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  };
+
+  /** Day-of-month + month for the compact calendar chip. */
+  const chipDate = (dateStr: string): { day: string; month: string } => {
+    const d = new Date(dateStr + 'T00:00:00');
+    return {
+      day: String(d.getDate()),
+      month: d.toLocaleDateString('en-IN', { month: 'short' }),
+    };
+  };
+
+  /** Aggregate per-date status from the backend's per-dish availability. */
+  const summarize = (d: PreOrderDateOption) => {
+    const total = d.dishes.length;
+    const available = d.dishes.filter((x) => x.available).length;
+    const closed = d.reasons.some((r) => r.toLowerCase().includes('closed'));
+    const cutoff = d.reasons.some((r) => r.toLowerCase().includes('cutoff'));
+    let label = '';
+    let tone: 'open' | 'partial' | 'closed' = 'open';
+    if (closed || cutoff) {
+      label = closed ? 'Closed' : 'Cutoff passed';
+      tone = 'closed';
+    } else if (available === 0) {
+      label = 'Unavailable';
+      tone = 'closed';
+    } else if (total > 0 && available < total) {
+      label = `${available}/${total} dishes`;
+      tone = 'partial';
+    } else {
+      label = 'Available';
+      tone = 'open';
+    }
+    return { total, available, closed, cutoff, label, tone };
+  };
+
+  const activeDate = filteredDates.find((d) => d.date === selectedDate) || filteredDates[0];
+
+  /** Pre-order status of a dish on the currently selected calendar date. */
+  const dishStatusOnActiveDate = (itemId: string): 'available' | 'unavailable' | 'none' => {
+    if (!activeDate) return 'none';
+    const dish = activeDate.dishes.find((x) => x.menuItemId === itemId);
+    if (!dish) return 'none';
+    return dish.available ? 'available' : 'unavailable';
+  };
 
   return (
     <div className="pt-20 px-4 md:px-8 max-w-[1440px] mx-auto pb-36 md:pb-28">
@@ -92,6 +213,174 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Staff notice — ordering is customer-only. Prompt to switch accounts
+          rather than silently hiding the flow. */}
+      {!allowOrdering && (
+        <div className="mb-6 rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-950/50 via-stone-900/90 to-stone-900/90 p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-4 shadow-xl">
+          <div className="flex items-center gap-3 flex-1">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
+              <ChefHat className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-300">Sign in as a customer to order</p>
+              <p className="text-xs text-stone-400 mt-0.5 leading-relaxed">
+                You're signed in as staff — placing orders is for customer accounts. Manage kitchen orders from the Orders tab instead.
+              </p>
+            </div>
+          </div>
+          {onOpenAuth && (
+            <button
+              onClick={onOpenAuth}
+              className="flex-shrink-0 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold tracking-wide transition-all shadow-lg shadow-amber-500/20 cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
+            >
+              <LogIn className="w-4 h-4" />
+              Sign in as customer
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Pre-Order Availability Calendar — visible while browsing, not just at checkout */}
+      {restaurantId && (calendarLoading || preOrderDates.length > 0 || calendarError) && (
+        <div className="mb-8 rounded-3xl border border-stone-800 bg-stone-900/60 p-4 md:p-5 shadow-xl">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <CalendarClock className="w-4.5 h-4.5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold font-serif text-stone-100 tracking-tight">
+                  Pre-Order Availability
+                </h3>
+                <p className="text-[11px] text-stone-500">
+                  Upcoming days when these dishes can be pre-ordered — pick a date to see per-dish status.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Dish filter — narrows the calendar to a single dish */}
+              <select
+                value={dishFilter}
+                onChange={(e) => setDishFilter(e.target.value)}
+                className="py-1.5 px-2.5 bg-stone-950 border border-stone-800 rounded-lg text-[11px] text-stone-200 focus:outline-none focus:border-amber-500 cursor-pointer"
+                title="Filter calendar by dish"
+              >
+                <option value="">All dishes</option>
+                {menuItems.map((m) => (
+                  <option key={m.id} value={m.id}>{m.title}</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-3 text-[10px] text-stone-400">
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400"></span>Open</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400"></span>Partial</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-rose-400"></span>Closed / Cutoff</span>
+              </div>
+            </div>
+          </div>
+
+          {calendarLoading && preOrderDates.length === 0 ? (
+            <div className="flex items-center justify-center py-8 text-xs text-stone-500 gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+              Checking upcoming pre-order slots...
+            </div>
+          ) : calendarError && preOrderDates.length === 0 ? (
+            <p className="text-[11px] text-stone-500 py-2">
+              Availability calendar is temporarily unavailable — you can still pre-order at checkout.
+            </p>
+          ) : filteredDates.length > 0 ? (
+            <>
+              {/* Date chips — horizontal scroll on mobile */}
+              <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1 -mx-1 px-1">
+                {filteredDates.map((d) => {
+                  const { label, tone } = summarize(d);
+                  const { day, month } = chipDate(d.date);
+                  const isActive = d.date === activeDate?.date;
+                  const toneStyles = {
+                    open: 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300',
+                    partial: 'border-amber-500/50 bg-amber-500/10 text-amber-300',
+                    closed: 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+                  }[tone];
+                  return (
+                    <button
+                      key={d.date}
+                      onClick={() => setSelectedDate(d.date)}
+                      className={`flex-shrink-0 w-[74px] rounded-2xl border p-2.5 text-center transition-all cursor-pointer ${
+                        isActive
+                          ? 'border-amber-500 bg-stone-950 shadow-lg shadow-amber-500/10'
+                          : 'border-stone-800 bg-stone-950/60 hover:border-stone-600'
+                      }`}
+                    >
+                      <div className="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">
+                        {d.weekday.slice(0, 3)}
+                      </div>
+                      <div className={`text-lg font-bold font-mono leading-tight ${isActive ? 'text-amber-400' : 'text-stone-100'}`}>
+                        {day}
+                      </div>
+                      <div className="text-[10px] text-stone-500 mb-1.5">{month}</div>
+                      <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[9px] font-semibold ${toneStyles}`}>
+                        <span className={`w-1 h-1 rounded-full ${tone === 'open' ? 'bg-emerald-400' : tone === 'partial' ? 'bg-amber-400' : 'bg-rose-400'}`}></span>
+                        {label}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Detail panel for the selected date */}
+              {activeDate && (
+                <div className="mt-3 bg-stone-950/70 border border-stone-800 rounded-2xl p-3.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-2.5">
+                    <div className="flex items-center gap-2">
+                      <CalendarClock className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-bold text-stone-100">{prettyDate(activeDate.date)}</span>
+                    </div>
+                    {activeDate.openTime && (
+                      <span className="text-[10px] text-stone-500">
+                        Pickup: {activeDate.openTime} – {activeDate.closeTime}
+                      </span>
+                    )}
+                  </div>
+                  {activeDate.reasons.length > 0 && (
+                    <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-2.5 py-1.5 mb-2">
+                      {activeDate.reasons.join(' · ')}
+                    </p>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-1">
+                    {activeDate.dishes.map((dish) => (
+                      <div
+                        key={dish.menuItemId}
+                        className={`flex items-center gap-2 text-[11px] px-2 py-1.5 rounded-lg border ${
+                          dish.available
+                            ? 'text-emerald-300 border-emerald-800/50 bg-emerald-950/30'
+                            : 'text-stone-500 border-stone-800 bg-stone-900/40'
+                        } ${dishFilter === dish.menuItemId ? 'ring-1 ring-amber-500/50' : ''}`}
+                      >
+                        {dish.available ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-stone-600 shrink-0" />
+                        )}
+                        <span className="truncate flex-1">{dish.title}</span>
+                        <span className="shrink-0 font-semibold">
+                          {dish.available ? 'Available' : dish.reason || 'Unavailable'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center gap-2 py-6 justify-center text-xs text-stone-500">
+              <XCircle className="w-4 h-4 text-stone-600" />
+              {dishFilter
+                ? `“${menuItems.find((m) => m.id === dishFilter)?.title || 'This dish'}” has no open pre-order slots in the next few days.`
+                : 'No pre-order slots are currently open.'}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Categories & Filter Bar */}
       <div className="mb-8 space-y-4">
@@ -227,9 +516,45 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
                   </div>
                 )}
 
+                {/* Pre-order status on the selected calendar date */}
+                {activeDate && dishStatusOnActiveDate(item.id) !== 'none' && (
+                  <div
+                    className={`flex items-center gap-1.5 mb-4 text-[11px] rounded-lg px-2 py-1.5 border ${
+                      dishStatusOnActiveDate(item.id) === 'available'
+                        ? 'text-emerald-300 border-emerald-800/50 bg-emerald-950/30'
+                        : 'text-rose-300 border-rose-800/50 bg-rose-950/30'
+                    }`}
+                  >
+                    {dishStatusOnActiveDate(item.id) === 'available' ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    ) : (
+                      <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    )}
+                    <span>
+                      {dishStatusOnActiveDate(item.id) === 'available'
+                        ? `Pre-order available ${prettyDate(activeDate.date)}`
+                        : `Not available ${prettyDate(activeDate.date)}`}
+                    </span>
+                  </div>
+                )}
+
                 {/* Inline Quantity Controls or Add Button */}
                 <div className="mt-auto">
-                  {isSoldOut ? (
+                  {!allowOrdering ? (
+                    onOpenAuth ? (
+                      <button
+                        onClick={onOpenAuth}
+                        className="w-full py-2.5 rounded-xl bg-stone-950 hover:bg-stone-800 text-amber-400/80 hover:text-amber-300 border border-stone-800 hover:border-amber-500/40 text-xs font-semibold text-center transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <LogIn className="w-3.5 h-3.5" />
+                        Sign in as a customer to order
+                      </button>
+                    ) : (
+                      <div className="w-full py-2.5 rounded-xl bg-stone-950 text-stone-500 border border-stone-800 text-xs font-semibold text-center">
+                        Sign in as a customer to order
+                      </div>
+                    )
+                  ) : isSoldOut ? (
                     <button
                       disabled
                       className="w-full py-2.5 rounded-xl bg-stone-950 text-stone-600 border border-stone-800 text-xs font-semibold cursor-not-allowed text-center"
@@ -286,7 +611,7 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
       )}
 
       {/* Mobile Bottom Sticky Order Bar */}
-      {cart.length > 0 && (
+      {cart.length > 0 && allowOrdering && (
         <div className="fixed bottom-16 md:bottom-0 left-0 w-full bg-stone-950/95 backdrop-blur-xl border-t border-stone-800 z-30 px-4 py-3 md:hidden shadow-2xl">
           <div className="flex justify-between items-center mb-2">
             <div className="flex items-center gap-2">
@@ -310,7 +635,7 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
       )}
 
       {/* Desktop Floating Order Pill Bar */}
-      {cart.length > 0 && (
+      {cart.length > 0 && allowOrdering && (
         <div className="hidden md:flex fixed bottom-6 left-1/2 -translate-x-1/2 bg-stone-950/90 backdrop-blur-xl shadow-2xl rounded-full px-6 py-3 items-center space-x-6 z-30 border border-amber-500/30 amber-glow">
           <div className="flex items-center space-x-2">
             <ShoppingBag className="w-5 h-5 text-amber-400" />

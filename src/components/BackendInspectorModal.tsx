@@ -12,14 +12,17 @@ export const BackendInspectorModal: React.FC = () => {
   const [apiLogs, setApiLogs] = useState<Array<{ time: string; msg: string; type: string }>>([]);
 
   useEffect(() => {
-    fetch('/api/v1/health')
+    // Probe the real Spring Boot backend with a public endpoint.
+    fetch('/api/v1/restaurants')
       .then((res) => res.json())
       .then((data) => {
         setHealthStatus(data);
-        addLog('GET /api/v1/health -> 200 OK (Spring Boot Healthy)', 'info');
+        const count = data?.restaurants?.length ?? 0;
+        addLog(`GET /api/v1/restaurants -> Spring Boot reachable (${count} restaurants)`, 'info');
       })
       .catch((err) => {
         console.error(err);
+        addLog('GET /api/v1/restaurants -> Spring Boot unreachable', 'warn');
       });
   }, []);
 
@@ -31,9 +34,14 @@ export const BackendInspectorModal: React.FC = () => {
   const handleTestRealtimePayment = async () => {
     addLog('POST /api/v1/payments/process-realtime initiating Stripe test...', 'info');
     try {
+      // The payment helpers now require authentication — attach the stored JWT.
+      const token = localStorage.getItem('savory_token');
       const res = await fetch('/api/v1/payments/process-realtime', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           amount: 48.0,
           method: 'CARD',
@@ -42,6 +50,10 @@ export const BackendInspectorModal: React.FC = () => {
         }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        addLog(`Payment failed: ${data.message || res.status}`, 'warn');
+        return;
+      }
       addLog(`Payment Success: ${data.transactionId} | Gateway: STRIPE | Amount: $${data.amountPaid}`, 'success');
     } catch (err) {
       addLog('Payment API Failed', 'warn');
@@ -244,7 +256,7 @@ export const BackendInspectorModal: React.FC = () => {
         <div className="bg-slate-950 text-slate-200 rounded-xl p-md font-mono text-xs border border-slate-800 space-y-3">
           <div className="flex justify-between items-center text-slate-400 pb-2 border-b border-slate-800">
             <span>Spring Boot System Event Stream</span>
-            <span className="text-emerald-400">STATUS: {healthStatus?.status || 'UP'}</span>
+            <span className="text-emerald-400">STATUS: {healthStatus ? (healthStatus.success ? 'UP' : 'DOWN') : 'CHECKING…'}</span>
           </div>
 
           <div className="space-y-2 max-h-80 overflow-y-auto">

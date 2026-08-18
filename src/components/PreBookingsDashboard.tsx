@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Order } from '../types';
-import { updateOrderStatusDB } from '../lib/firebase';
+import { updateOrderStatus, getKitchenProduction, getDelayedOrders, toggleSoldOut, type KitchenProductionItem, type DelayedOrder } from '../lib/apiClient';
+import { canManage, hasRole, ROLES } from '../lib/roles';
 import {
   Bell,
   CheckCircle2,
@@ -24,38 +25,51 @@ import {
 
 interface PreBookingsDashboardProps {
   orders: Order[];
+  /** Current user's role string (may be comma-separated for dual-role staff). */
+  userRole?: string | null;
 }
 
-export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orders }) => {
+export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orders, userRole }) => {
+  // Chefs may cook (NEW -> PREPARING) and pack (PREPARING -> PACKED_READY) only.
+  // Declining, completing, and handing over are manager/admin responsibilities.
+  const isManagerOrAbove = canManage(userRole);
+  const isChefOnly = hasRole(userRole, ROLES.CHEF) && !isManagerOrAbove;
   const [filterTab, setFilterTab] = useState<'today' | 'upcoming'>('today');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [notificationStatusMsg, setNotificationStatusMsg] = useState<string | null>(null);
+  const [production, setProduction] = useState<KitchenProductionItem[]>([]);
+  const [delayedOrders, setDelayedOrders] = useState<DelayedOrder[]>([]);
+
+  // Load kitchen production and delayed orders
+  React.useEffect(() => {
+    const loadKitchen = async () => {
+      try {
+        const [prod, delayed] = await Promise.all([
+          getKitchenProduction(),
+          getDelayedOrders(),
+        ]);
+        setProduction(prod);
+        setDelayedOrders(delayed);
+      } catch (err) {
+        console.error('Failed to load kitchen data:', err);
+      }
+    };
+    loadKitchen();
+  }, []);
 
   const handleUpdateStatus = async (order: Order, newStatus: Order['orderStatus']) => {
-    await updateOrderStatusDB(order.id, newStatus);
-
-    // Send notification alert via backend REST API
     try {
-      const res = await fetch('/api/v1/notifications/send-order-alert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: order.id,
-          orderNumber: order.orderNumber,
-          customerName: order.customerName,
-          phone: order.customerPhone || '+91 98765 43210',
-          email: order.customerEmail || 'customer@example.com',
-          status: newStatus,
-        }),
-      });
-      const data = await res.json();
+      // Pass the order's restaurant so super admins (whose JWT has no
+      // restaurant) can update any restaurant's order; regular staff stay
+      // locked to their own restaurant server-side regardless.
+      await updateOrderStatus(order.id, newStatus, order.restaurantId || undefined);
       setNotificationStatusMsg(
-        `🔔 Order ${order.orderNumber} updated to ${newStatus}. Multi-channel alerts sent via App Push, SMS, WhatsApp & Email!`
+        `🔔 Order ${order.orderNumber} → ${newStatus}. Multi-channel alerts dispatched (SSE, SMS, WhatsApp, Email)!`
       );
       setTimeout(() => setNotificationStatusMsg(null), 6000);
     } catch (e) {
-      console.error('Notification dispatch failed', e);
+      console.error('Order status update failed', e);
     }
   };
 
@@ -295,16 +309,19 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                     </span>
                   </div>
 
-                  {/* Order Workflow Action Buttons */}
+                  {/* Order Workflow Action Buttons — role-gated: chefs cook & pack;
+                      managers/admins (and dual-role staff) handle decline/handover. */}
                   <div className="mt-4 flex flex-wrap justify-end gap-2">
                     {isNew && (
                       <>
-                        <button
-                          onClick={() => handleUpdateStatus(ord, 'DECLINED')}
-                          className="px-3 py-1.5 border border-stone-700 text-stone-300 rounded-xl text-xs font-semibold hover:bg-stone-800 transition-colors cursor-pointer"
-                        >
-                          Decline
-                        </button>
+                        {isManagerOrAbove && (
+                          <button
+                            onClick={() => handleUpdateStatus(ord, 'DECLINED')}
+                            className="px-3 py-1.5 border border-stone-700 text-stone-300 rounded-xl text-xs font-semibold hover:bg-stone-800 transition-colors cursor-pointer"
+                          >
+                            Decline
+                          </button>
+                        )}
                         <button
                           onClick={() => handleUpdateStatus(ord, 'PREPARING')}
                           className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-xl text-xs font-bold shadow-md shadow-amber-500/20 transition-all cursor-pointer flex items-center gap-1.5"
@@ -325,7 +342,7 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                       </button>
                     )}
 
-                    {isPackedReady && (
+                    {isPackedReady && isManagerOrAbove && (
                       <button
                         onClick={() => handleUpdateStatus(ord, 'COMPLETED')}
                         className="px-4 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-bold border border-stone-700 transition-colors cursor-pointer flex items-center gap-1.5"
@@ -333,6 +350,13 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                         <span>Handover to Customer</span>
                       </button>
+                    )}
+
+                    {isPackedReady && isChefOnly && (
+                      <span className="px-3 py-1.5 rounded-xl bg-stone-950/60 border border-stone-800 text-stone-500 text-[10px] font-mono flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        Packed & ready — awaiting manager handover
+                      </span>
                     )}
 
                     {isCompleted && (
@@ -383,6 +407,50 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                 </span>
               </div>
             </div>
+
+            {/* Delayed Orders Alert */}
+            {delayedOrders.length > 0 && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3">
+                <p className="text-xs font-bold text-red-400 mb-2">⚠ {delayedOrders.length} Delayed Order{delayedOrders.length > 1 ? 's' : ''}</p>
+                {delayedOrders.map((d) => (
+                  <div key={d.orderId} className="text-[11px] text-red-300 flex justify-between">
+                    <span>{d.orderNumber} — {d.customerName}</span>
+                    <span className="text-red-400 font-mono">+{d.delayMinutes}m</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Kitchen Production View */}
+            {production.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-[10px] font-bold text-stone-400 uppercase tracking-widest font-mono">
+                  Production Queue
+                </h4>
+                {production.map((item) => (
+                  <div key={item.menuItemId} className="bg-stone-950 p-3 rounded-xl border border-stone-800/80">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-white font-medium">{item.dishName}</span>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                        item.urgency === 'OVERDUE' ? 'bg-red-500/20 text-red-400' :
+                        item.urgency === 'DUE_SOON' ? 'bg-amber-500/20 text-amber-400' :
+                        'bg-stone-800 text-stone-400'
+                      }`}>
+                        {item.urgency}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-stone-400">
+                        {item.requiredPlates} plates needed
+                      </span>
+                      <span className="text-stone-500">
+                        Orders: {item.orderNumbers.join(', ')}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="space-y-2.5 pt-3 border-t border-stone-800">
               <h4 className="text-[10px] font-bold text-stone-400 uppercase tracking-widest font-mono">

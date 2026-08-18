@@ -1,16 +1,11 @@
 import React, { useState } from 'react';
 import { PrepItem, EstimatedRawMaterial } from '../types';
-import { updatePrepCountDB } from '../lib/firebase';
 import { INITIAL_RAW_MATERIALS } from '../data/initialData';
 import {
   ChefHat,
   ShoppingBasket,
-  CheckCircle2,
   Plus,
   Minus,
-  Clock,
-  Sparkles,
-  Flame,
   Check,
 } from 'lucide-react';
 
@@ -21,20 +16,33 @@ interface ChefPrepSummaryProps {
 export const ChefPrepSummary: React.FC<ChefPrepSummaryProps> = ({ prepItems }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [rawMaterials] = useState<EstimatedRawMaterial[]>(INITIAL_RAW_MATERIALS);
+  // Local copy so the +/- controls work without a backend (legacy demo view).
+  // NOTE: App passes the static INITIAL_PREP_ITEMS constant, so this state never
+  // needs to re-sync from props. If real data is wired in later, sync via a key/effect.
+  const [localPrepItems, setLocalPrepItems] = useState<PrepItem[]>(prepItems);
 
   const categories = ['All Categories', 'Starters', 'Mains', 'Desserts'];
 
-  const filteredPrepItems = prepItems.filter((item) => {
+  const filteredPrepItems = localPrepItems.filter((item) => {
     if (selectedCategory === 'All Categories') return true;
     return item.category === selectedCategory;
   });
 
-  const handleAdjustCount = async (id: string, delta: number) => {
-    await updatePrepCountDB(id, delta);
+  const handleAdjustCount = (id: string, delta: number) => {
+    setLocalPrepItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              preppedCount: Math.max(0, Math.min(item.requiredCount, item.preppedCount + delta)),
+            }
+          : item
+      )
+    );
   };
 
-  const totalRequiredAll = prepItems.reduce((acc, curr) => acc + curr.requiredCount, 0);
-  const totalPreppedAll = prepItems.reduce((acc, curr) => acc + curr.preppedCount, 0);
+  const totalRequiredAll = localPrepItems.reduce((acc, curr) => acc + curr.requiredCount, 0);
+  const totalPreppedAll = localPrepItems.reduce((acc, curr) => acc + curr.preppedCount, 0);
 
   return (
     <div className="pt-20 w-full max-w-[1440px] px-4 md:px-8 flex flex-col gap-6 mx-auto pb-28">
@@ -227,4 +235,3 @@ export const ChefPrepSummary: React.FC<ChefPrepSummaryProps> = ({ prepItems }) =
     </div>
   );
 };
-

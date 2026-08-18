@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { CartItem, PaymentMethod, Order } from '../types';
-import { addOrderDB } from '../lib/firebase';
+import React, { useState, useEffect } from 'react';
+import { CartItem, Order, PreOrderDateOption } from '../types';
+import { placeOrder, confirmOrderPayment, getPreOrderDates, checkCartAvailability } from '../lib/apiClient';
+import type { CartAvailabilityItem, CartAvailabilityResponse } from '../lib/apiClient';
+import { getTokenUserId } from '../lib/tokenManager';
 import {
   CheckCircle2,
   BellRing,
@@ -12,10 +14,10 @@ import {
   QrCode,
   CreditCard,
   Banknote,
-  Calendar,
-  Users,
   UtensilsCrossed,
   ShoppingBag,
+  CalendarClock,
+  AlertCircle,
 } from 'lucide-react';
 
 interface RealtimePaymentModalProps {
@@ -25,6 +27,10 @@ interface RealtimePaymentModalProps {
   clearCart: () => void;
   onPaymentSuccess: (order: Order) => void;
   currentUser?: any;
+  restaurantId?: string;
+  restaurantName?: string;
+  /** Date picked on the menu's pre-order calendar — preselect it when loading. */
+  initialPreOrderDate?: string;
 }
 
 export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
@@ -34,6 +40,9 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
   clearCart,
   onPaymentSuccess,
   currentUser,
+  restaurantId,
+  restaurantName,
+  initialPreOrderDate,
 }) => {
   const [customerName, setCustomerName] = useState('Rahul Sharma');
   const [customerPhone, setCustomerPhone] = useState('+91 98765 43210');
@@ -46,7 +55,13 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
       if (currentUser.email) setCustomerEmail(currentUser.email);
     }
   }, [currentUser, isOpen]);
-  const [orderType, setOrderType] = useState<'PICKUP' | 'DINE_IN'>('PICKUP');
+  // Clear any stale payment error each time the modal opens.
+  // NOTE: must live above the `if (!isOpen) return null` guard — calling a hook
+  // after a conditional return violates the Rules of Hooks and crashes React.
+  React.useEffect(() => {
+    if (isOpen) setPaymentError(null);
+  }, [isOpen]);
+  const [orderType, setOrderType] = useState<'PICKUP' | 'DINE_IN' | 'PRE_ORDER'>('PICKUP');
   const [pickupTime, setPickupTime] = useState('30 Mins (Ready by 07:45 PM)');
   const [tableNumber, setTableNumber] = useState(4);
   const [guests, setGuests] = useState(2);
@@ -57,6 +72,7 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState<string>('');
   const [progressPercent, setProgressPercent] = useState<number>(0);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentSuccessData, setPaymentSuccessData] = useState<{
     txnId: string;
     orderNumber: string;
@@ -64,117 +80,204 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
     notifications: string[];
   } | null>(null);
 
+  // Pre-order availability: server-computed orderable dates for this cart's dishes.
+  const [preOrderDates, setPreOrderDates] = useState<PreOrderDateOption[]>([]);
+  const [selectedPreOrderDate, setSelectedPreOrderDate] = useState<string>('');
+  const [preOrderDatesError, setPreOrderDatesError] = useState<string | null>(null);
+
+  // Cart availability check — detects items that went out of stock while browsing.
+  const [availabilityResult, setAvailabilityResult] = useState<CartAvailabilityResponse | null>(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+
+  // Check cart availability when modal opens (runs for all order types).
+  useEffect(() => {
+    if (!isOpen || !restaurantId || cart.length === 0) return;
+    let cancelled = false;
+    setAvailabilityLoading(true);
+    setAvailabilityResult(null);
+    checkCartAvailability(
+      restaurantId,
+      cart.map((c) => ({ menuItemId: c.menuItem.id, quantity: c.quantity }))
+    )
+      .then((res) => {
+        if (!cancelled) setAvailabilityResult(res);
+      })
+      .catch((err) => {
+        console.warn('Availability check failed:', err);
+        // Don't block checkout if the check itself fails — backend will validate on submit.
+        if (!cancelled) setAvailabilityResult({ allAvailable: true, unavailableItems: [] });
+      })
+      .finally(() => {
+        if (!cancelled) setAvailabilityLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [isOpen, restaurantId, cart]);
+
+  useEffect(() => {
+    if (!isOpen || orderType !== 'PRE_ORDER') return;
+    let cancelled = false;
+    setPreOrderDatesError(null);
+    getPreOrderDates({
+      restaurantId: restaurantId || '',
+      menuItemIds: cart.map((c) => c.menuItem.id),
+    })
+      .then((dates) => {
+        if (cancelled) return;
+        setPreOrderDates(dates);
+        // Prefer the date picked on the menu calendar when it's still orderable;
+        // otherwise fall back to the first orderable date.
+        const first =
+          dates.find((d) => d.date === initialPreOrderDate && d.orderable) ||
+          dates.find((d) => d.orderable) ||
+          dates[0];
+        setSelectedPreOrderDate(first ? first.date : '');
+      })
+      .catch((err) => {
+        if (!cancelled) setPreOrderDatesError(err?.message || 'Could not load pre-order dates');
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, orderType, restaurantId, initialPreOrderDate]);
+
+  /** Build an ISO datetime (yyyy-MM-ddTHH:mm:ss) for the selected pre-order
+   *  date + time so pre-orders land in that day's ingredient forecast. */
+  const isoDateTime = (date: string, label: string): string => {
+    const match = label.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    let hours = 12;
+    let minutes = 0;
+    if (match) {
+      let h = parseInt(match[1], 10);
+      const isPM = match[3].toUpperCase() === 'PM';
+      if (isPM && h !== 12) h += 12;
+      if (!isPM && h === 12) h = 0;
+      hours = h;
+      minutes = parseInt(match[2], 10);
+    }
+    return `${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  };
+
+  /** Parse "09:00" or "09:00 AM"/"09:00 PM" into minutes since midnight. */
+  const toMinutes = (t?: string | null): number => {
+    if (!t) return -1;
+    const m = t.trim().match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!m) return -1;
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    const suffix = m[3] ? m[3].toUpperCase() : null;
+    if (suffix === 'PM' && h !== 12) h += 12;
+    if (suffix === 'AM' && h === 12) h = 0;
+    return h * 60 + min;
+  };
+
+  /** Time slots for the selected pre-order date, bounded by operating hours. */
+  const timeSlotsForDate = (): string[] => {
+    const opt = preOrderDates.find((d) => d.date === selectedPreOrderDate);
+    if (!opt) return ['10:00 AM', '12:30 PM', '02:00 PM', '07:00 PM'];
+    const open = toMinutes(opt.openTime);
+    const close = toMinutes(opt.closeTime);
+    const candidates = ['10:00 AM', '12:30 PM', '02:00 PM', '04:30 PM', '07:00 PM', '09:00 PM'];
+    return candidates.filter((c) => {
+      const min = toMinutes(c);
+      return (open < 0 || min >= open) && (close < 0 || min < close);
+    });
+  };
+
+  const selectedDateLabel = (): string => {
+    const opt = preOrderDates.find((d) => d.date === selectedPreOrderDate);
+    if (!opt) return '';
+    const pretty = new Date(opt.date + 'T00:00:00').toLocaleDateString('en-IN', {
+      weekday: 'short', day: 'numeric', month: 'short',
+    });
+    return `${pretty} (${opt.weekday})`;
+  };
+
   if (!isOpen) return null;
 
   const totalAmount = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
 
+  /** Switch fulfillment type and reset the slot label to a valid option for it,
+   *  so a PRE_ORDER never inherits a PICKUP label (and vice-versa). */
+  const switchOrderType = (t: 'PICKUP' | 'DINE_IN' | 'PRE_ORDER') => {
+    setOrderType(t);
+    if (t === 'PRE_ORDER') setPickupTime('10:00 AM');
+    else if (t === 'PICKUP') setPickupTime('30 Mins (Ready by 07:45 PM)');
+  };
+
+  const effectivePreOrderDate = selectedPreOrderDate
+    || preOrderDates.find((d) => d.orderable)?.date
+    || '';
+
   const handleStartRealtimePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName.trim()) return;
+    if (availabilityResult && availabilityResult.unavailableItems.length > 0) {
+      setPaymentError('Some items in your cart are no longer available. Please remove them and try again.');
+      return;
+    }
 
     setIsProcessing(true);
+    setPaymentError(null); // clear any previous failure so a retry starts clean
     setProgressPercent(15);
-    setProcessingStep(`Creating ${paymentGateway} Order Intent on Spring Boot Server...`);
+    setProcessingStep(`Placing order via Spring Boot backend...`);
 
     try {
-      // Step 1: Create Payment Intent
-      const intentRes = await fetch('/api/v1/payments/create-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: totalAmount,
-          currency: 'INR',
-          gateway: paymentGateway,
-          customerName,
-          phone: customerPhone,
-        }),
-      });
-
-      const intentData = await intentRes.json();
-
-      await new Promise((r) => setTimeout(r, 500));
-      setProgressPercent(45);
-      setProcessingStep(`Verifying ${paymentGateway === 'UPI' ? 'UPI VPA: ' + upiId : 'Razorpay Gateway'} & Tokenizing...`);
-
-      // Step 2: Process & Capture Payment
-      const response = await fetch('/api/v1/payments/process-realtime', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: totalAmount,
-          method: paymentGateway,
-          gateway: paymentGateway,
-          upiId: paymentGateway === 'UPI' ? upiId : undefined,
-          customerName,
-        }),
-      });
-
-      const resData = await response.json();
-
-      await new Promise((r) => setTimeout(r, 600));
-      setProgressPercent(75);
-      setProcessingStep('Sending Multi-channel Alerts: App Push, SMS, WhatsApp & Email...');
-
-      const orderNumber = '#ORD-' + Math.floor(1000 + Math.random() * 9000);
-
-      // Step 3: Trigger Multi-channel Notification
-      await fetch('/api/v1/notifications/send-order-alert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderNumber,
-          customerName,
-          phone: customerPhone,
-          email: customerEmail,
-          status: 'NEW',
-        }),
-      });
-
-      await new Promise((r) => setTimeout(r, 400));
-      setProgressPercent(100);
-      setProcessingStep('Order Confirmed & Scheduled! Broadcasting to Kitchen Dashboard...');
-
-      const newOrder: Order = {
-        id: 'ord_' + Date.now(),
-        orderNumber,
+      // Call the real backend
+      const order = await placeOrder({
+        restaurantId: restaurantId || '',
         orderType,
-        ...(orderType === 'PICKUP' && pickupTime ? { pickupTime } : {}),
-        ...(orderType === 'DINE_IN' ? { tableNumber, guests } : {}),
-        timeSlot: pickupTime || '30 Mins',
+        tableNumber: orderType === 'DINE_IN' ? tableNumber : undefined,
+        guests: orderType === 'DINE_IN' ? guests : undefined,
+        timeSlot: orderType === 'PRE_ORDER'
+          ? `${selectedDateLabel() || effectivePreOrderDate} ${pickupTime}`
+          : (pickupTime || '30 Mins'),
+        pickupTime: orderType === 'PRE_ORDER'
+          ? isoDateTime(effectivePreOrderDate, pickupTime)
+          : (orderType === 'PICKUP' ? pickupTime : undefined),
         customerName,
         customerPhone,
         customerEmail,
+        paymentMethod: paymentGateway,
         items: cart.map((c) => ({
-          id: c.menuItem.id,
-          title: c.menuItem.title,
-          price: c.menuItem.price,
+          menuItemId: c.menuItem.id,
           quantity: c.quantity,
         })),
-        totalAmount,
-        paymentStatus: 'PAID',
-        paymentMethod: paymentGateway as PaymentMethod,
-        paymentTransactionId: resData.transactionId || 'TXN_UPI_' + Date.now(),
-        orderStatus: 'NEW',
-        createdAt: new Date().toISOString(),
-        timestamp: Date.now(),
-        notificationsSent: ['App Push', 'SMS', 'WhatsApp', 'Email']
-      };
+      });
 
-      // Save to Firestore
-      await addOrderDB(newOrder);
+      // Server-authoritative payment confirmation: the backend validates ownership
+      // and amount before marking the order PAID. If it fails, the order stays PENDING.
+      // CASH / Pay-on-Pickup orders stay PENDING until the customer pays at the counter.
+      if (paymentGateway !== 'CASH') {
+        try {
+          await confirmOrderPayment(order.id, { amount: totalAmount, gateway: paymentGateway });
+        } catch (confirmErr) {
+          console.warn('Payment confirmation skipped — order stays PENDING', confirmErr);
+        }
+      }
+
+      await new Promise((r) => setTimeout(r, 500));
+      setProgressPercent(80);
+      setProcessingStep('Order confirmed! Dispatching real-time notifications...');
+
+      await new Promise((r) => setTimeout(r, 400));
+      setProgressPercent(100);
+      setProcessingStep('Order Confirmed! Real-time notification pushed via SSE.');
 
       setPaymentSuccessData({
-        txnId: newOrder.paymentTransactionId || 'TXN_UPI_SUCCESS',
-        orderNumber,
+        txnId: order.paymentTransactionId || 'TXN_MOCK_' + Date.now(),
+        orderNumber: order.orderNumber,
         gateway: paymentGateway,
-        notifications: ['App Push', 'SMS (+91)', 'WhatsApp', 'Email']
+        notifications: ['App Push (SSE)', 'SMS', 'WhatsApp', 'Email']
       });
 
       clearCart();
-      onPaymentSuccess(newOrder);
-    } catch (err) {
-      console.error('Payment processing error:', err);
+      onPaymentSuccess(order);
+    } catch (err: any) {
+      console.error('Order placement error:', err);
       setIsProcessing(false);
+      setPaymentError(
+        err?.message ||
+        'Unable to place your order. Please check your details and try again.'
+      );
     }
   };
 
@@ -284,6 +387,34 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
           ) : (
             /* Order Form View */
             <form onSubmit={handleStartRealtimePayment} className="space-y-4">
+              {/* Unavailable Items Warning */}
+              {availabilityResult && availabilityResult.unavailableItems.length > 0 && (
+                <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span className="text-xs font-bold text-rose-400">
+                      {availabilityResult.unavailableItems.length} item(s) no longer available
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-rose-300/70">
+                    These items have been marked as Sold Out or removed by the restaurant while you were browsing.
+                    Please go back and remove them from your cart to proceed.
+                  </p>
+                  <div className="space-y-1">
+                    {availabilityResult.unavailableItems.map((item) => (
+                      <div key={item.menuItemId} className="flex items-center justify-between bg-stone-950/60 rounded-xl px-3 py-1.5">
+                        <span className="text-[11px] text-stone-300">
+                          {item.quantity}x {item.title}
+                        </span>
+                        <span className="text-[10px] font-mono text-rose-400 uppercase font-bold">
+                          {item.status === 'NOT_FOUND' ? 'Removed' : item.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Order Summary Box */}
               <div className="bg-stone-950 p-3.5 rounded-2xl border border-stone-800 space-y-2">
                 <div className="flex justify-between items-center text-xs font-semibold text-stone-300">
@@ -291,12 +422,17 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
                   <span className="text-amber-400 font-mono text-sm font-bold">₹{totalAmount}</span>
                 </div>
                 <div className="text-[11px] text-stone-400 divide-y divide-stone-800/60 max-h-24 overflow-y-auto">
-                  {cart.map((c) => (
-                    <div key={c.menuItem.id} className="py-1 flex justify-between">
-                      <span>{c.quantity}x {c.menuItem.title}</span>
-                      <span className="font-mono">₹{c.menuItem.price * c.quantity}</span>
-                    </div>
-                  ))}
+                  {cart.map((c) => {
+                    const isUnavailable = availabilityResult?.unavailableItems.some(
+                      (u) => u.menuItemId === c.menuItem.id
+                    );
+                    return (
+                      <div key={c.menuItem.id} className={`py-1 flex justify-between ${isUnavailable ? 'line-through text-rose-400' : ''}`}>
+                        <span>{c.quantity}x {c.menuItem.title}</span>
+                        <span className="font-mono">₹{c.menuItem.price * c.quantity}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -305,36 +441,106 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
                 <label className="block text-xs font-semibold text-stone-300 uppercase tracking-wider mb-1.5">
                   Order Fulfillment Type
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => setOrderType('PICKUP')}
+                    onClick={() => switchOrderType('PICKUP')}
                     className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border cursor-pointer ${
                       orderType === 'PICKUP'
                         ? 'bg-amber-500/15 text-amber-400 border-amber-500/50'
                         : 'bg-stone-950 text-stone-400 border-stone-800 hover:text-stone-200'
                     }`}
                   >
-                    <ShoppingBag className="w-4 h-4" />
-                    <span>Schedule Pickup</span>
+                    <ShoppingBag className="w-4 h-4 shrink-0" />
+                    <span>Pickup</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setOrderType('DINE_IN')}
+                    onClick={() => switchOrderType('DINE_IN')}
                     className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border cursor-pointer ${
                       orderType === 'DINE_IN'
                         ? 'bg-amber-500/15 text-amber-400 border-amber-500/50'
                         : 'bg-stone-950 text-stone-400 border-stone-800 hover:text-stone-200'
                     }`}
                   >
-                    <UtensilsCrossed className="w-4 h-4" />
-                    <span>Dine-In Table</span>
+                    <UtensilsCrossed className="w-4 h-4 shrink-0" />
+                    <span>Dine-In</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchOrderType('PRE_ORDER')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border cursor-pointer ${
+                      orderType === 'PRE_ORDER'
+                        ? 'bg-amber-500/15 text-amber-400 border-amber-500/50'
+                        : 'bg-stone-950 text-stone-400 border-stone-800 hover:text-stone-200'
+                    }`}
+                  >
+                    <CalendarClock className="w-4 h-4 shrink-0" />
+                    <span>Pre-Order</span>
                   </button>
                 </div>
               </div>
 
-              {/* Pickup Schedule Slot */}
-              {orderType === 'PICKUP' ? (
+              {/* Pre-Order: date + pickup time (availability from backend) */}
+              {orderType === 'PRE_ORDER' ? (
+                <div className="space-y-3">
+                  {preOrderDatesError && (
+                    <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">
+                      {preOrderDatesError}
+                    </p>
+                  )}
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-300 mb-1">
+                      Select Pre-Order Date
+                    </label>
+                    {preOrderDates.length > 0 ? (
+                      <select
+                        value={selectedPreOrderDate}
+                        onChange={(e) => setSelectedPreOrderDate(e.target.value)}
+                        className="w-full py-2 px-3 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-100 focus:outline-none focus:border-amber-500"
+                      >
+                        {preOrderDates.map((d) => {
+                          const pretty = new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', {
+                            weekday: 'short', day: 'numeric', month: 'short',
+                          });
+                          return (
+                            <option key={d.date} value={d.date} disabled={!d.orderable}>
+                              {pretty} — {d.orderable ? 'Available' : (d.reasons[0] || 'Unavailable')}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : (
+                      <div className="w-full py-2 px-3 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-500">
+                        {preOrderDatesError ? 'Date check unavailable — will validate on submit.' : 'Checking availability...'}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-300 mb-1">
+                      Select Pickup Time Slot
+                    </label>
+                    <select
+                      value={pickupTime}
+                      onChange={(e) => setPickupTime(e.target.value)}
+                      className="w-full py-2 px-3 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-100 focus:outline-none focus:border-amber-500"
+                    >
+                      {timeSlotsForDate().map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {selectedPreOrderDate && !preOrderDates.find((d) => d.date === selectedPreOrderDate)?.orderable && (
+                    <p className="text-[10px] text-rose-400">
+                      The selected date is not orderable — pick another date or remove unavailable dishes.
+                    </p>
+                  )}
+                  <p className="text-[10px] text-stone-500">
+                    Pre-orders close at this restaurant's configured cutoff on the day before and are
+                    included in that day's ingredient forecast for the kitchen.
+                  </p>
+                </div>
+              ) : orderType === 'PICKUP' ? (
                 <div>
                   <label className="block text-xs font-semibold text-stone-300 mb-1">
                     Select Pickup Time Slot
@@ -471,13 +677,30 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
                 </div>
               )}
 
+              {/* Order placement / auth errors — visible instead of silent failure */}
+              {paymentError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{paymentError}</span>
+                </div>
+              )}
+
               {/* Submit Action */}
               <button
                 type="submit"
-                className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer transition-all flex items-center justify-center gap-2"
+                disabled={!!(availabilityResult && availabilityResult.unavailableItems.length > 0)}
+                className={`w-full py-3 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${
+                  availabilityResult && availabilityResult.unavailableItems.length > 0
+                    ? 'bg-stone-700 text-stone-400 cursor-not-allowed shadow-none'
+                    : 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-amber-500/20 cursor-pointer'
+                }`}
               >
                 <Lock className="w-4 h-4" />
-                <span>Confirm Order & Pay ₹{totalAmount}</span>
+                <span>
+                  {availabilityResult && availabilityResult.unavailableItems.length > 0
+                    ? 'Remove unavailable items to proceed'
+                    : `Confirm Order & Pay ₹${totalAmount}`}
+                </span>
               </button>
             </form>
           )}
