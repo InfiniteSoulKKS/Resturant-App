@@ -10,3 +10,4 @@ coverage/
 # Java / Maven build output (may contain compiled copies of config with secrets)
 springboot-backend/target/
 
+.idea/
