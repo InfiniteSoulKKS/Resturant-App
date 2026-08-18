@@ -1,0 +1,136 @@
+<mxfile host="app.diagrams.net" agent="SavoryStay" version="24.0.0">
+  <diagram id="savorystay-architecture" name="SavoryStay Architecture">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="950" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ══════════ Actors (left) ══════════ -->
+        <mxCell id="U" value="👤 Guest / Customer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;fontColor=#78350f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="20" y="80" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="S" value="👨‍🍳 Chef" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;fontColor=#78350f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="20" y="160" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="M" value="📊 Manager / Admin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;fontColor=#78350f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="20" y="240" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="A" value="🏢 Super Admin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;fontColor=#78350f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="20" y="320" width="170" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ══════════ Frontend container ══════════ -->
+        <mxCell id="FE" value="Frontend — React SPA (Vite :5173)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#d97706;fontColor=#78350f;fontStyle=1;fontSize=13;verticalAlign=top;spacingTop=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="230" y="60" width="340" height="350" as="geometry" />
+        </mxCell>
+        <mxCell id="C1" value="components&#10;AuthModal · CustomerMenuView · MenuManagement&#10;PreBookingsDashboard · RealtimePaymentModal&#10;OrderTracking · StaffManagement · SuperAdminDashboard&#10;IngredientPlanning · NotificationsBell …" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#f59e0b;fontColor=#78350f;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="250" y="110" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="C2" value="lib — apiClient · tokenManager · roles.ts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#f59e0b;fontColor=#78350f;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="250" y="240" width="300" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="C3" value="hooks — useRealtimeNotifications (SSE client)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#f59e0b;fontColor=#78350f;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="250" y="300" width="300" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ══════════ Backend container ══════════ -->
+        <mxCell id="BE" value="Backend — Spring Boot 3.2 (:8080)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef2ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontStyle=1;fontSize=13;verticalAlign=top;spacingTop=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="60" width="440" height="480" as="geometry" />
+        </mxCell>
+        <mxCell id="SEC" value="Security Layer&#10;JwtAuthenticationFilter · JwtTokenProvider · RoleUtils&#10;TenantContextFilter · AuthRateLimitService (Redis)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontColor=#7f1d1d;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="110" width="400" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="CTRL" value="Controllers — Auth · Otp · Order · Menu · Payment&#10;Ingredient · Restaurant · Staff · Notification" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="210" width="400" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="SVC" value="Services&#10;OtpService · OrderService · MenuService · PaymentGatewayService&#10;IngredientService · NotificationService · RealtimeService&#10;ChannelDeliveryService · OutboxService" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="290" width="400" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="SCH" value="Schedulers — OtpCleanupScheduler (15 min) · OutboxPoller" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="400" width="400" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="REPO" value="JPA Repositories (15)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="460" width="400" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ══════════ Data / Infra ══════════ -->
+        <mxCell id="DB" value="MySQL&#10;users · restaurants · menu_items · orders · order_items&#10;payments · ingredients · otp_requests · price_rules · outbox_events" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d1fae5;strokeColor=#059669;fontColor=#064e3b;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="590" width="440" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="RD" value="Redis&#10;rate limits · lockout state" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d1fae5;strokeColor=#059669;fontColor=#064e3b;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="710" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ══════════ External providers ══════════ -->
+        <mxCell id="TW" value="Twilio&#10;SMS + WhatsApp" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#831843;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="90" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="SM" value="SMTP / Spring Mail&#10;Email OTP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#831843;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="180" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ST" value="Stripe&#10;PaymentIntent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#831843;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="270" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="PP" value="PayPal&#10;Checkout SDK" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#831843;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="360" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ══════════ Edges ══════════ -->
+        <mxCell id="E1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="U" target="FE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="S" target="FE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="M" target="FE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="A" target="FE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="E5" value="HTTPS /api/v1/* · Bearer JWT" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=10;fontColor=#7f1d1d;" edge="1" parent="1" source="FE" target="SEC">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="SEC" target="CTRL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="CTRL" target="SVC">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="SVC" target="REPO">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E9" value="JPA / Hibernate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=10;" edge="1" parent="1" source="REPO" target="DB">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E10" value="rate-limit + lockout" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0;exitY=0.5;entryX=0.5;entryY=0;fontSize=10;" edge="1" parent="1" source="SEC" target="RD">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E11" value="drain outbox events" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;dashed=1;fontSize=10;" edge="1" parent="1" source="SCH" target="SVC">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="E12" value="SMS + WhatsApp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=10;" edge="1" parent="1" source="SVC" target="TW">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E13" value="email OTP" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=10;" edge="1" parent="1" source="SVC" target="SM">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E14" value="payment intents" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=10;" edge="1" parent="1" source="SVC" target="ST">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E15" value="checkout orders" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=10;" edge="1" parent="1" source="SVC" target="PP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="E16" value="SSE stream /api/v1/realtime/stream" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;fontSize=10;strokeColor=#059669;" edge="1" parent="1" source="SVC" target="C3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="E17" value="live events → bell · order refresh" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=10;strokeColor=#059669;" edge="1" parent="1" source="C3" target="C1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
