@@ -1,0 +1,84 @@
+# ============================================================================
+# SavoryStay — Local Kafka for the event-driven notification pipeline
+# ============================================================================
+# The backend's transactional outbox publishes events (order.created,
+# order.status.changed, otp.generated, payment.confirmed, inventory.stock.low)
+# to Kafka topics. Consumers dispatch them in real time as Gmail (HTML)
+# emails, SMS / WhatsApp (Twilio) and in-app SSE notifications.
+#
+#   Start:  docker compose up -d
+#   Stop:   docker compose down
+#   Logs:   docker compose logs -f kafka
+#
+#   Kafka UI (browse topics / messages / consumer groups):
+#           http://localhost:8081
+#
+# Backend connects via KAFKA_BOOTSTRAP_SERVERS=localhost:29092 (already the
+# default in application.yml). MySQL (localhost:3306) and Redis
+# (localhost:6379) are expected to run separately, matching the existing
+# local setup — add them here only if you want the whole stack containerized.
+#
+# Two listeners are exposed so both host processes AND dockerized clients
+# (kafka-ui) can connect to the same broker:
+#   PLAINTEXT://kafka:9092   - reachable inside the compose network
+#   PLAINTEXT_HOST://:29092  - reachable from the host via localhost:29092
+# ============================================================================
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: savorystay-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: savorystay-kafka
+    ports:
+      - "9092:9092"   # in-network listener (used by kafka-ui / other containers)
+      - "29092:29092" # host listener (used by the Spring Boot backend)
+    environment:
+      # Single-node KRaft cluster (no ZooKeeper)
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      # Single-broker friendly replication settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: savorystay-kafka-ui
+    ports:
+      - "8081:8080" # Kafka UI (avoid clashing with the backend on 8080)
+    environment:
+      KAFKA_CLUSTERS_0_NAME: savorystay-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+volumes:
+  redis-data:
