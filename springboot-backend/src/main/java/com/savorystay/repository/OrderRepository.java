@@ -2,8 +2,11 @@ package com.savorystay.repository;
 
 import com.savorystay.entity.Order;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -11,5 +14,24 @@ import java.util.Optional;
 public interface OrderRepository extends JpaRepository<Order, String> {
     Optional<Order> findByOrderNumber(String orderNumber);
     List<Order> findByUserIdOrderByCreatedAtDesc(String userId);
-    List<Order> findByOrderStatusOrderByCreatedAtDesc(String orderStatus);
+    List<Order> findByRestaurantIdOrderByCreatedAtDesc(String restaurantId);
+    List<Order> findByRestaurantIdAndOrderStatusOrderByCreatedAtDesc(String restaurantId, String orderStatus);
+    Optional<Order> findByIdAndRestaurantId(String id, String restaurantId);
+    Optional<Order> findByIdAndUserId(String id, String userId);
+
+    /**
+     * Orders relevant to a forecast date: pre-orders scheduled to be fulfilled
+     * on that date (keyed by pickup_time), plus any orders placed that day.
+     * Used to calculate next-day ingredient requirements from pre-order volume.
+     */
+    @Query("SELECT o FROM Order o WHERE o.restaurantId = :restaurantId " +
+           "AND o.orderStatus NOT IN ('DECLINED', 'CANCELLED') " +
+           "AND (" +
+           "  (o.orderType = 'PRE_ORDER' AND o.pickupTime LIKE CONCAT(:dateStr, '%')) " +
+           "  OR (o.createdAt BETWEEN :from AND :to)" +
+           ") ORDER BY o.createdAt DESC")
+    List<Order> findActiveOrdersBetween(@Param("restaurantId") String restaurantId,
+                                        @Param("dateStr") String dateStr,
+                                        @Param("from") LocalDateTime from,
+                                        @Param("to") LocalDateTime to);
 }

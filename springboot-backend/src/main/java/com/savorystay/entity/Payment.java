@@ -1,5 +1,6 @@
 package com.savorystay.entity;
 
+import com.savorystay.common.IdGenerator;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -47,7 +48,7 @@ public class Payment {
 
     @PrePersist
     protected void onCreate() {
-        if (transactionId == null) transactionId = "TXN_" + System.currentTimeMillis();
+        if (transactionId == null) transactionId = IdGenerator.newId("TXN");
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (currency == null) currency = "USD";
         if (paymentStatus == null) paymentStatus = "PAID";

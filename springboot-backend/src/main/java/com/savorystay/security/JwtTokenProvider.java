@@ -22,6 +22,10 @@ public class JwtTokenProvider {
     }
 
     public String generateToken(String username, String role, String userId) {
+        return generateToken(username, role, userId, null);
+    }
+
+    public String generateToken(String username, String role, String userId, String restaurantId) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpirationInMs);
 
@@ -29,6 +33,7 @@ public class JwtTokenProvider {
                 .setSubject(username)
                 .claim("role", role)
                 .claim("userId", userId)
+                .claim("restaurantId", restaurantId)
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
@@ -36,13 +41,30 @@ public class JwtTokenProvider {
     }
 
     public String getUsernameFromJWT(String token) {
-        Claims claims = Jwts.parserBuilder()
+        return getClaims(token).getSubject();
+    }
+
+    public String getRoleFromJWT(String token) {
+        Object role = getClaims(token).get("role");
+        return role != null ? role.toString() : "ROLE_CUSTOMER";
+    }
+
+    public String getUserIdFromJWT(String token) {
+        Object userId = getClaims(token).get("userId");
+        return userId != null ? userId.toString() : null;
+    }
+
+    public String getRestaurantIdFromJWT(String token) {
+        Object restaurantId = getClaims(token).get("restaurantId");
+        return restaurantId != null ? restaurantId.toString() : null;
+    }
+
+    private Claims getClaims(String token) {
+        return Jwts.parserBuilder()
                 .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
-
-        return claims.getSubject();
     }
 
     public boolean validateToken(String authToken) {
