@@ -5,7 +5,7 @@ import { authenticatedFetch } from './tokenManager';
  * Handles all authentication and OTP-related API calls
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 const API_ENDPOINT = `${API_BASE_URL}/api/v1/auth`;
 
 export interface AuthResponse {
@@ -1040,6 +1040,6 @@ export async function removeCustomerMember(customerId: string, restaurantId?: st
 /** SSE stream URL — EventSource cannot send Authorization headers, token goes in query string. */
 export function getRealtimeStreamUrl(): string {
   const token = localStorage.getItem('savory_token');
-  const base = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+  const base = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
   return `${base}/api/v1/realtime/stream?token=${encodeURIComponent(token || '')}`;
 }
