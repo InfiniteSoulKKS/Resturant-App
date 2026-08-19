@@ -98,7 +98,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_CONSUMER_GROUP: savorystay-notifications
       # JWT
-      JWT_SECRET: ${JWT_SECRET:?Generate with: openssl rand -hex 32}
+      JWT_SECRET: ${JWT_SECRET:?Missing JWT_SECRET - generate with openssl rand -hex 32}
       # Mail (Gmail SMTP or ElasticEmail)
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
