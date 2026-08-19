@@ -17,6 +17,7 @@ RUN ./mvnw clean package -DskipTests -B
 
 # Stage 2: Runtime
 FROM eclipse-temurin:17-jre-alpine
+RUN apk add --no-cache curl
 WORKDIR /app
 
 # Create non-root user

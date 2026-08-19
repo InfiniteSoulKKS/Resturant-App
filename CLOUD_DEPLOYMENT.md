@@ -1,299 +1,189 @@
-# SavoryStay — Cloud Deployment Guide (Free Tier)
+# SavoryStay — Cloud Deployment Guide
 
-This guide helps you deploy the full SavoryStay stack to production using **100% free cloud resources**.
-
-## Architecture Overview
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                     CLOUD DEPLOYMENT                      │
-│                                                            │
-│  ┌─────────────┐     ┌──────────────┐     ┌────────────┐  │
-│  │  Frontend    │────▶│   Backend    │────▶│   MySQL    │  │
-│  │  (Vercel)   │     │  (Render)    │     │ (PlanetScale)│ │
-│  └─────────────┘     └──────┬───────┘     └────────────┘  │
-│                              │                             │
-│                    ┌─────────┼─────────┐                   │
-│                    ▼         ▼         ▼                   │
-│              ┌──────────┐ ┌───────┐ ┌──────────┐          │
-│              │  Redis   │ │ Kafka │ │  Gmail   │          │
-│              │(Upstash) │ │(KRaft)│ │  SMTP    │          │
-│              └──────────┘ └───────┘ └──────────┘          │
-└──────────────────────────────────────────────────────────┘
-```
+This guide deploys the **full stack** (React + Spring Boot + MySQL + Redis + Kafka) to the internet.
 
 ---
 
-## Option A: Managed Services (Recommended — Easiest)
+## 🏆 Recommended: Oracle Cloud Always Free Tier (VM)
 
-### 1. Frontend → Vercel (Free)
+**Everything on one VM. Always free. No credit card charges. No spin-down.**
 
-| Feature | Details |
-|---------|---------|
-| **Free tier** | 100 GB bandwidth/month, unlimited deploys |
-| **Setup** | `npm i -g vercel` → `vercel` |
-| **Custom domain** | Free `.vercel.app` subdomain |
+| Resource | Allocation |
+|----------|-----------|
+| OCPUs | 4 (always free) |
+| RAM | 24 GB (always free) |
+| Storage | 200 GB boot volume |
+| Cost | **$0 forever** |
 
-```bash
-# Install Vercel CLI
-npm i -g vercel
+### Step 1 — Create the VM (5 minutes)
 
-# Login
-vercel login
+1. Go to **[cloud.oracle.com](https://cloud.oracle.com)** → Sign up (free)
+2. After email verification, go to **Compute → Instances → Create Instance**
+3. Settings:
+   - **Name**: `savorystay`
+   - **Image**: Ubuntu 22.04 (or Canonical Ubuntu 22.04)
+   - **Shape**: VM.Standard.E2.1.Micro (Always Free eligible) or Ampere A1 (4 OCPUs, 24 GB — also free)
+   - **SSH Key**: Paste your public key (`cat ~/.ssh/id_rsa.pub`)
+4. Click **Create** and wait ~2 minutes
+5. Note the **Public IP** from the instance details
 
-# Deploy from project root
-vercel --prod
+### Step 2 — Open Ports
 
-# Set environment variable for backend URL
-vercel env add VITE_API_URL
-# Enter: https://your-backend.onrender.com
-```
+Go to **Networking → Virtual Cloud Networks → your VCN → Security Lists → Default Security List → Add Ingress Rules**:
 
-### 2. Backend → Render (Free)
+| Port | Source | Purpose |
+|------|--------|---------|
+| 22 | 0.0.0.0/0 | SSH access |
+| 80 | 0.0.0.0/0 | Frontend (HTTP) |
+| 8080 | 0.0.0.0/0 | Backend API |
+| 8081 | 0.0.0.0/0 | Kafka UI (optional) |
 
-| Feature | Details |
-|---------|---------|
-| **Free tier** | 750 hours/month, spins down after 15 min inactivity |
-| **Setup** | Connect GitHub repo → auto-deploy |
-| **Note** | First deploy takes ~5 min (build + start) |
-
-**Steps:**
-1. Push your code to GitHub
-2. Go to [render.com](https://render.com) → New → Web Service
-3. Connect your GitHub repo
-4. Settings:
-   - **Runtime**: Java
-   - **Build Command**: `cd springboot-backend && ./mvnw package -DskipTests`
-   - **Start Command**: `java -jar springboot-backend/target/savory-stay-backend-1.0.0-SNAPSHOT.jar`
-   - **Plan**: Free
-5. Add **Environment Variables** (see below)
-
-**Required Environment Variables:**
-```
-JAVA_VERSION=17
-MYSQL_HOST=your-planetscale-host
-MYSQL_PORT=3306
-MYSQL_DB=savorystay_db
-MYSQL_USER=your-planetscale-user
-MYSQL_PASSWORD=your-planetscale-password
-JWT_SECRET=<generate with: openssl rand -hex 32>
-REDIS_HOST=your-upstash-host
-REDIS_PORT=your-upstash-port
-REDIS_PASSWORD=your-upstash-password
-KAFKA_BOOTSTRAP_SERVERS=your-confluent-bootstrap-servers
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=your-email@gmail.com
-MAIL_PASSWORD=your-gmail-app-password
-APP_URL=https://your-frontend.vercel.app
-```
-
-### 3. MySQL → PlanetScale (Free)
-
-| Feature | Details |
-|---------|---------|
-| **Free tier** | 1 GB storage, 1 billion reads/month |
-| **Setup** | Create account → create database → get connection string |
-
-**Steps:**
-1. Go to [planetscale.com](https://planetscale.com) → Sign up
-2. Create new database: `savorystay_db`
-3. Create user with read/write access
-4. Copy the connection details to your environment variables
-
-### 4. Redis → Upstash (Free)
-
-| Feature | Details |
-|---------|---------|
-| **Free tier** | 10,000 commands/day, 256 MB storage |
-| **Setup** | Create account → create Redis database |
-
-**Steps:**
-1. Go to [upstash.com](https://upstash.com) → Sign up
-2. Create new Redis database
-3. Copy `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
-4. Or use the TCP connection details
-
-### 5. Kafka → Confluent Cloud (Free)
-
-| Feature | Details |
-|---------|---------|
-| **Free tier** | $400 credit for first 30 days |
-| **Setup** | Create cluster → get bootstrap servers |
-
-**Steps:**
-1. Go to [confluent.io](https://confluent.io) → Sign up
-2. Create Basic cluster (uses free credit)
-3. Create API key → copy bootstrap servers + credentials
-4. Add to environment variables
-
----
-
-## Option B: All-in-One on Oracle Cloud Free Tier (VM)
-
-If you prefer a single VM with everything running via Docker:
-
-### 1. Create Oracle Cloud Free VM
-
-1. Go to [cloud.oracle.com](https://cloud.oracle.com) → Sign up
-2. Create Always Free VM (4 OCPU, 24 GB RAM)
-3. Choose Ubuntu 22.04 image
-4. Open ports in Security List: **22, 80, 443, 8080**
-
-### 2. SSH into your VM and deploy
+### Step 3 — Deploy (one command)
 
 ```bash
-# Install Docker + Docker Compose
-sudo apt update && sudo apt install -y docker.io docker-compose
-sudo usermod -aG docker $USER
-newgrp docker
+# SSH into your VM
+ssh ubuntu@<YOUR_PUBLIC_IP>
 
-# Clone your repo
-git clone https://github.com/yourusername/Resturant-App.git
-cd Resturant-App
+# Run the one-click deploy script
+bash <(curl -fsSL https://raw.githubusercontent.com/InfiniteSoulKKS/Resturant-App/main/deploy.sh)
+```
 
-# Generate JWT secret
-JWT_SECRET=$(openssl rand -hex 32)
-echo "JWT_SECRET=$JWT_SECRET" > .env.prod
+That's it! The script:
+- Installs Docker
+- Clones the repo
+- Generates a JWT secret
+- Builds and starts all 5 services
 
-# Add other secrets to .env.prod
-cat >> .env.prod << 'EOF'
-MYSQL_PASSWORD=StrongProdPassword2026
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=your-email@gmail.com
-MAIL_PASSWORD=your-gmail-app-password
-APP_URL=http://your-vm-ip
-KAFKA_HOST=your-vm-ip
-EOF
+### Step 4 — (Optional) Add Gmail for Email OTPs
 
-# Start everything
+Edit the config and restart:
+
+```bash
+nano ~/savorystay/.env.prod
+# Set MAIL_USERNAME=your-email@gmail.com
+# Set MAIL_PASSWORD=your-16-char-app-password
+
+cd ~/savorystay
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
-
-# Check status
-docker compose -f docker-compose.prod.yml ps
 ```
 
-### 3. Set up Nginx reverse proxy (optional, for HTTPS)
+> Without Gmail credentials, the system works in **demo mode** — OTPs are logged to the console instead of sent via email.
+
+### Step 5 — Verify
 
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
+# Backend health
+curl http://localhost:8080/api/v1/health
 
-# Create nginx config
-sudo tee /etc/nginx/sites-available/savorystay << 'EOF'
-server {
-    listen 80;
-    server_name your-domain.com;
+# All services
+curl http://localhost:8080/api/v1/health/mail
+curl http://localhost:8080/api/v1/health/redis
+curl http://localhost:8080/api/v1/health/kafka
+```
 
-    location / {
-        proxy_pass http://localhost:80;  # Frontend
-        proxy_set_header Host $host;
-    }
+---
 
-    location /api/ {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-EOF
+## Your Live URLs
 
-sudo ln -s /etc/nginx/sites-available/savorystay /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d your-domain.com
+| Service | URL |
+|---------|-----|
+| 🌐 Frontend | `http://<YOUR_PUBLIC_IP>` |
+| 🔧 Backend API | `http://<YOUR_PUBLIC_IP>:8080/api/v1` |
+| ❤️ Health | `http://<YOUR_PUBLIC_IP>:8080/api/v1/health` |
+| 📊 Kafka UI | `http://<YOUR_PUBLIC_IP>:8081` |
+| 📋 Demo Login | `superadmin` / `SuperAdmin@123` |
+
+---
+
+## Updating the Deployed App
+
+```bash
+ssh ubuntu@<YOUR_PUBLIC_IP>
+cd ~/savorystay
+git pull
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+---
+
+## Managing the Stack
+
+```bash
+# View logs (all services)
+cd ~/savorystay
+docker compose -f docker-compose.prod.yml logs -f
+
+# View logs (specific service)
+docker compose -f docker-compose.prod.yml logs -f backend
+docker compose -f docker-compose.prod.yml logs -f kafka
+
+# Restart a service
+docker compose -f docker-compose.prod.yml restart backend
+
+# Stop everything
+docker compose -f docker-compose.prod.yml down
+
+# Stop and remove data (fresh start)
+docker compose -f docker-compose.prod.yml down -v
 ```
 
 ---
 
 ## Gmail SMTP App Password Setup
 
-For email delivery to work in production:
-
 1. Go to [myaccount.google.com](https://myaccount.google.com)
-2. Security → 2-Step Verification (enable if not already)
-3. Search "App passwords" → Create new
+2. **Security** → **2-Step Verification** (enable if not already)
+3. Search **"App passwords"** → Create new
 4. Name it "SavoryStay" → Generate
 5. Copy the 16-character password (e.g., `abcd efgh ijkl mnop`)
-6. Use it as `MAIL_PASSWORD` (remove spaces)
+6. Use as `MAIL_PASSWORD` (remove spaces)
 
 ---
 
-## Quick Start: Deploy to Render (5 minutes)
+## Architecture (Running on VM)
 
-```bash
-# 1. Build the JAR locally to verify
-cd springboot-backend
-./mvnw package -DskipTests
-cd ..
-
-# 2. Push to GitHub
-git add -A && git commit -m "feat: cloud deployment ready" && git push
-
-# 3. Go to render.com → New → Web Service → Connect GitHub repo
-
-# 4. Set these environment variables in Render dashboard:
-#    JWT_SECRET, MYSQL_HOST, MYSQL_PORT, MYSQL_DB, MYSQL_USER, MYSQL_PASSWORD
-#    REDIS_HOST, REDIS_PORT, REDIS_PASSWORD
-#    KAFKA_BOOTSTRAP_SERVERS
-#    MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD
-#    APP_URL
-
-# 5. Deploy! First build takes ~5 minutes.
 ```
-
----
-
-## Cost Summary (Free Tier)
-
-| Service | Provider | Free Tier | Monthly Cost |
-|---------|----------|-----------|-------------|
-| Frontend | Vercel | 100 GB bandwidth | $0 |
-| Backend | Render | 750 hours/month | $0 |
-| MySQL | PlanetScale | 1 GB storage | $0 |
-| Redis | Upstash | 10K commands/day | $0 |
-| Kafka | Confluent Cloud | $400 credit (30 days) | ~$0 (then paid) |
-| Email | Gmail SMTP | Unlimited | $0 |
-| **Total** | | | **$0** |
-
-> **Note**: After 30 days, Confluent Cloud charges ~$0.10/hour for the basic cluster. You can either:
-> - Downgrade to their free-tier limited cluster
-> - Switch Kafka to the Oracle Cloud VM (Option B)
-> - Run Kafka in Docker on the Render service (not recommended for prod)
-
----
-
-## Post-Deployment Checklist
-
-- [ ] Frontend loads at `https://your-frontend.vercel.app`
-- [ ] Backend health check returns `{"status":"UP"}` at `https://your-backend.onrender.com/api/v1/health`
-- [ ] Mail health shows `"configured": true` at `/api/v1/health/mail`
-- [ ] Redis health shows `"reachable": true` at `/api/v1/health/redis`
-- [ ] Kafka health shows `"reachable": true` at `/api/v1/health/kafka`
-- [ ] Login with demo user works: `superadmin` / `SuperAdmin@123`
-- [ ] OTP email is received in inbox
-- [ ] Orders can be placed and status changes trigger notifications
-- [ ] Frontend API calls reach the backend (check browser network tab)
+┌─────────────────────────────────────────────────┐
+│              Oracle Cloud VM                     │
+│                                                  │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐    │
+│  │ Frontend │──▶│ Backend  │──▶│  MySQL   │    │
+│  │ (Nginx)  │   │ (Spring) │   │ (Docker) │    │
+│  │  :80     │   │  :8080   │   │  :3306   │    │
+│  └──────────┘   └────┬─────┘   └──────────┘    │
+│                      │                           │
+│                ┌─────┼─────┐                     │
+│                ▼     ▼     ▼                     │
+│          ┌────────┐ ┌────┐ ┌────────┐           │
+│          │ Redis  │ │Kafka│ │ Gmail  │           │
+│          │ :6379  │ │:9092│ │  SMTP  │           │
+│          └────────┘ └────┘ └────────┘           │
+└─────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Troubleshooting
 
-### Backend won't start on Render
-- Check build logs for compilation errors
-- Ensure all environment variables are set
-- The first deploy is slow (Maven downloads dependencies)
+### Services won't start
+```bash
+docker compose -f docker-compose.prod.yml ps          # Check status
+docker compose -f docker-compose.prod.yml logs backend # Check backend logs
+```
+
+### MySQL connection refused
+- Wait 30 seconds after boot — MySQL takes time to initialize
+- Check: `docker compose -f docker-compose.prod.yml logs mysql`
+
+### Kafka consumer not processing
+- Check: `curl http://localhost:8080/api/v1/health/kafka`
+- Look at Kafka UI: `http://<YOUR_IP>:8081`
 
 ### Email not sending
 - Verify Gmail App Password is correct
-- Check `/api/v1/health/mail` endpoint
-- Ensure `MAIL_PASSWORD` has no extra spaces
+- Check: `curl http://localhost:8080/api/v1/health/mail`
+- System falls back to demo mode (OTP in console) without email
 
-### Kafka consumer not processing events
-- Check `/api/v1/health/kafka` shows UP
-- Look at outbox_event table for pending events (`published_at IS NULL`)
-- Check backend logs for `[OUTBOX]` and `[KAFKA]` entries
-
-### Database connection refused
-- Verify PlanetScale credentials
-- Ensure your IP is whitelisted (PlanetScale uses SSL)
-- Check connection string format: `jdbc:mysql://host:3306/db?sslMode=REQUIRED`
+### Can't connect from browser
+- Verify Oracle Cloud Security List allows ports 80 and 8080
+- Check: `curl http://<YOUR_IP>:80` from your local machine
