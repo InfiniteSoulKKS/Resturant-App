@@ -300,6 +300,69 @@ public class OrderService {
         return saved;
     }
 
+    /**
+     * Staff-only cash payment completion.
+     * When a customer pays at the counter, staff marks the CASH order as PAID.
+     *
+     * Rules:
+     * - Only CASH orders in PENDING payment status can be marked paid.
+     * - Only restaurant staff (manager/admin/super-admin) can perform this.
+     * - Cross-tenant access is prevented by restaurantId validation.
+     * - Already-paid orders are rejected (idempotent via early return).
+     * - The action is auditable (audit trail recorded).
+     */
+    @Transactional
+    public Order markCashPaid(String orderId, String restaurantId, String actorUserId, String role) {
+        Order order = orderRepository.findByIdAndRestaurantId(orderId, restaurantId)
+                .orElseThrow(() -> new IllegalArgumentException("Order not found in this restaurant"));
+
+        // Only staff can mark cash as paid
+        if (role == null || "ROLE_CUSTOMER".equals(role)) {
+            throw new SecurityException("Only staff can mark cash payments as paid");
+        }
+
+        // Only CASH orders can be marked paid this way
+        if (!"CASH".equalsIgnoreCase(order.getPaymentMethod())) {
+            throw new IllegalArgumentException(
+                    "Only CASH orders can be marked paid at the counter (order method: " + order.getPaymentMethod() + ")");
+        }
+
+        // Already paid — idempotent return
+        if ("PAID".equals(order.getPaymentStatus())) {
+            return order;
+        }
+
+        // Must be PENDING to be marked paid
+        if (!"PENDING".equals(order.getPaymentStatus())) {
+            throw new IllegalArgumentException(
+                    "Cannot mark a " + order.getPaymentStatus() + " order as paid");
+        }
+
+        // Mark payment as PAID
+        order.setPaymentStatus("PAID");
+        Order saved = orderRepository.save(order);
+
+        // Create payment record for audit trail
+        paymentRepository.save(Payment.builder()
+                .transactionId("TXN_CASH_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16))
+                .orderId(orderId)
+                .gateway("CASH")
+                .amount(order.getTotalAmount())
+                .currency("INR")
+                .paymentStatus("PAID")
+                .build());
+
+        // Audit trail
+        auditService.record(restaurantId, actorUserId, role, "CASH_PAYMENT_RECORDED", "ORDER", orderId,
+                Map.of("orderNumber", saved.getOrderNumber(), "amount", saved.getTotalAmount(),
+                       "paymentMethod", "CASH"),
+                "Cash payment collected at counter");
+
+        log.info("Cash payment recorded for order {} by {} (amount: {})",
+                saved.getOrderNumber(), actorUserId, saved.getTotalAmount());
+        return saved;
+    }
+
     public List<Order> ordersForCustomer(String userId) {
         return orderRepository.findByUserIdOrderByCreatedAtDesc(userId);
     }

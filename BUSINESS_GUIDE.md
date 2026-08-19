@@ -228,7 +228,7 @@ A staff member can hold **multiple roles** (e.g. Manager + Chef) and automatical
 5. **Set each dish's weekly cooking schedule** — this is what protects you from taking orders for dishes you don't cook that day.
 6. **Open special days** (festival runs) or **close special days** (holidays) as needed.
 7. Watch the **forecast each evening** — use the 7-day date picker to plan ahead. Closed days are automatically greyed out.
-8. **Configure email** — for OTP delivery and order notifications, set up Gmail SMTP credentials in the backend configuration. See the Developer Guide for step-by-step instructions.
+8. **Configure email** — for OTP delivery and order notifications, the system uses **Gmail SMTP**. The backend owner needs to set up a Gmail App Password (see the Developer Guide for step-by-step instructions). In development, if email credentials are not configured, the system falls back to demo mode (OTP shown in the console) so everything still works.
 
 ---
 

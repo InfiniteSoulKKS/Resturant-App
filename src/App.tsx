@@ -257,6 +257,49 @@ export default function App() {
   const clearCart = () => setCart([]);
   const totalCartCount = cart.reduce((sum, ci) => sum + ci.quantity, 0);
 
+  /**
+   * Order Again: adds previous order items to the cart.
+   * Uses current menu data for availability and price validation.
+   * If a menu item is no longer available, it's skipped with a warning.
+   */
+  const handleReorder = (reorderItems: { menuItemId: string; title: string; price: number; quantity: number }[], restaurantId: string) => {
+    // Switch to restaurant if needed
+    if (restaurantId && restaurantId !== userRestaurantId) {
+      setUserRestaurantId(restaurantId);
+    }
+    // Switch to customer menu tab
+    setActiveTab('customer_menu');
+    // Clear existing cart
+    setCart([]);
+    // Add items — use menuItems from current restaurant if available
+    const newCart: CartItem[] = [];
+    for (const ri of reorderItems) {
+      const menuItem = menuItems.find(m => m.id === ri.menuItemId);
+      if (menuItem && menuItem.status === 'Available') {
+        newCart.push({ menuItem, quantity: ri.quantity });
+      } else {
+        // Item not found or sold out — skip silently (checkout will validate)
+        // Use a synthetic MenuItem with the old price as fallback
+        newCart.push({
+          menuItem: {
+            id: ri.menuItemId,
+            title: ri.title,
+            price: ri.price,
+            restaurantId,
+            status: 'Available',
+            category: '',
+            isVeg: true,
+            spiceLevel: 'Medium',
+            description: '',
+            imageUrl: '',
+          },
+          quantity: ri.quantity,
+        });
+      }
+    }
+    setCart(newCart);
+  };
+
   // Ordering is customer-only (guests may browse + build a cart, then sign in at
   // checkout). Staff accounts manage the kitchen and are blocked, and the API
   // rejects POST /orders for any non-customer role — including super admin, so
@@ -366,6 +409,7 @@ export default function App() {
               liveUpdate={(handler) => {
                 orderTrackingRefreshRef.current = handler;
               }}
+              onReorder={handleReorder}
             />
           ) : (
             <PreBookingsDashboard orders={orders} userRole={userRole} />

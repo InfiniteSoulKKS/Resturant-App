@@ -1,30 +1,49 @@
 # ============================================================================
-# SavoryStay — Local Kafka for the event-driven notification pipeline
+# SavoryStay — Full Local Development Stack
 # ============================================================================
-# The backend's transactional outbox publishes events (order.created,
-# order.status.changed, otp.generated, payment.confirmed, inventory.stock.low)
-# to Kafka topics. Consumers dispatch them in real time as Gmail (HTML)
-# emails, SMS / WhatsApp (Twilio) and in-app SSE notifications.
+# Brings up MySQL, Redis, Kafka, and Kafka UI for local development.
 #
 #   Start:  docker compose up -d
 #   Stop:   docker compose down
-#   Logs:   docker compose logs -f kafka
+#   Logs:   docker compose logs -f
 #
 #   Kafka UI (browse topics / messages / consumer groups):
 #           http://localhost:8081
 #
-# Backend connects via KAFKA_BOOTSTRAP_SERVERS=localhost:29092 (already the
-# default in application.yml). MySQL (localhost:3306) and Redis
-# (localhost:6379) are expected to run separately, matching the existing
-# local setup — add them here only if you want the whole stack containerized.
+# Services:
+#   MySQL   → localhost:3306  (savorystay_db, seeded by DataSeeder on first boot)
+#   Redis   → localhost:6379  (rate limiting, lockout state)
+#   Kafka   → localhost:29092 (event backbone for notifications)
+#   Kafka UI → http://localhost:8081
 #
-# Two listeners are exposed so both host processes AND dockerized clients
+# Backend connects via:
+#   MYSQL_HOST=localhost  MYSQL_PORT=3306  (already the default in application.yml)
+#   REDIS_HOST=localhost  REDIS_PORT=6379  (already the default in application.yml)
+#   KAFKA_BOOTSTRAP_SERVERS=localhost:29092 (already the default in application.yml)
+#
+# Two Kafka listeners are exposed so both host processes AND dockerized clients
 # (kafka-ui) can connect to the same broker:
 #   PLAINTEXT://kafka:9092   - reachable inside the compose network
 #   PLAINTEXT_HOST://:29092  - reachable from the host via localhost:29092
 # ============================================================================
 
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: savorystay-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-KKsahu@8763}
+      MYSQL_DATABASE: ${MYSQL_DB:-savorystay_db}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     container_name: savorystay-redis
@@ -81,4 +100,5 @@ services:
         condition: service_healthy
 
 volumes:
+  mysql-data:
   redis-data:

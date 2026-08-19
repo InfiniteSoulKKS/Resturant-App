@@ -5,9 +5,14 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @SpringBootApplication
@@ -15,6 +20,10 @@ import java.util.List;
 public class SavoryStayApplication {
 
     public static void main(String[] args) {
+        // Load .env file FIRST, before Spring starts, so required secrets are
+        // available to both validateRequiredSecrets() and application.yml placeholders.
+        loadDotEnv();
+
         // Fail fast BEFORE Spring / Hibernate start, so a missing or weak secret
         // surfaces as a clear, actionable message instead of a runtime 500 or a
         // noisy DB connection error.
@@ -22,6 +31,52 @@ public class SavoryStayApplication {
 
         SpringApplication.run(SavoryStayApplication.class, args);
         log.info("SavoryStay backend started: JWT auth, Kafka event pipeline, ElasticEmail/SMS/WhatsApp delivery active");
+    }
+
+    /**
+     * Reads the .env file from the project root and injects all variables into
+     * System properties so that (1) validateRequiredSecrets() can see them and
+     * (2) Spring's {@code ${VAR:}} placeholders resolve correctly.
+     *
+     * System-level env vars always win — .env only fills in what's missing.
+     */
+    private static void loadDotEnv() {
+        // Search for .env in common locations
+        String[] candidates = {".env", "springboot-backend/.env"};
+        for (String candidate : candidates) {
+            Path envFile = Path.of(candidate);
+            if (!Files.exists(envFile)) continue;
+
+            try (BufferedReader reader = Files.newBufferedReader(envFile)) {
+                String line;
+                int loaded = 0;
+                while ((line = reader.readLine()) != null) {
+                    line = line.trim();
+                    if (line.isEmpty() || line.startsWith("#")) continue;
+
+                    int eqIndex = line.indexOf('=');
+                    if (eqIndex <= 0) continue;
+
+                    String key = line.substring(0, eqIndex).trim();
+                    String value = line.substring(eqIndex + 1).trim();
+
+                    // Only set if not already present in the process environment
+                    if (System.getenv(key) == null || System.getenv(key).isBlank()) {
+                        System.setProperty(key, value);
+                        loaded++;
+                    }
+                }
+                if (loaded > 0) {
+                    log.info("[DOTENV] Loaded {} variable(s) from {}", loaded, candidate);
+                } else {
+                    log.info("[DOTENV] All environment variables already set — {} not needed", candidate);
+                }
+                return; // Found and processed a .env file
+            } catch (IOException e) {
+                log.warn("[DOTENV] Could not read {}: {}", candidate, e.getMessage());
+            }
+        }
+        log.info("[DOTENV] No .env file found — relying on system environment variables");
     }
 
     /**

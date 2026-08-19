@@ -1,0 +1,1806 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SavoryStay - Interview Preparation</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2cm;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.6;
+    color: #1a1a1a;
+    max-width: 100%;
+  }
+  h1 {
+    font-size: 22pt;
+    color: #1a1a1a;
+    border-bottom: 3px solid #e67e22;
+    padding-bottom: 8px;
+    margin-top: 30px;
+  }
+  h2 {
+    font-size: 16pt;
+    color: #2c3e50;
+    border-bottom: 1px solid #bdc3c7;
+    padding-bottom: 5px;
+    margin-top: 25px;
+  }
+  h3 {
+    font-size: 13pt;
+    color: #34495e;
+    margin-top: 18px;
+  }
+  h4 {
+    font-size: 11pt;
+    color: #7f8c8d;
+    margin-top: 14px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 10pt;
+  }
+  th, td {
+    border: 1px solid #ddd;
+    padding: 8px 10px;
+    text-align: left;
+  }
+  th {
+    background-color: #2c3e50;
+    color: white;
+    font-weight: 600;
+  }
+  tr:nth-child(even) {
+    background-color: #f8f9fa;
+  }
+  code {
+    font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+    background-color: #f4f4f4;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 9.5pt;
+  }
+  pre {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    padding: 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 9pt;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  pre code {
+    background-color: transparent;
+    color: #d4d4d4;
+    padding: 0;
+  }
+  blockquote {
+    border-left: 4px solid #e67e22;
+    margin: 12px 0;
+    padding: 8px 16px;
+    background-color: #fdf6e3;
+    color: #555;
+  }
+  ul, ol {
+    margin: 8px 0;
+    padding-left: 24px;
+  }
+  li {
+    margin: 4px 0;
+  }
+  hr {
+    border: none;
+    border-top: 2px solid #ecf0f1;
+    margin: 20px 0;
+  }
+  strong {
+    color: #2c3e50;
+  }
+</style>
+</head>
+<body>
+<h1>SavoryStay — Technical Deep-Dive &amp; Interview Preparation</h1>
+<blockquote>
+<p>A comprehensive technical guide covering architecture, system design patterns,<br />
+detailed flows, database design, security model, and key decisions made<br />
+during the implementation of the SavoryStay restaurant operations platform.</p>
+</blockquote>
+<hr />
+<h2>Table of Contents</h2>
+<ol>
+<li><a href="#1-system-overview--tech-stack">System Overview &amp; Tech Stack</a></li>
+<li><a href="#2-architecture--design-patterns">Architecture &amp; Design Patterns</a></li>
+<li><a href="#3-multi-tenancy-architecture">Multi-Tenancy Architecture</a></li>
+<li><a href="#4-authentication--authorization">Authentication &amp; Authorization</a></li>
+<li><a href="#5-order-lifecycle--state-machine">Order Lifecycle &amp; State Machine</a></li>
+<li><a href="#6-payment-system">Payment System</a></li>
+<li><a href="#7-pre-order-availability-engine">Pre-Order Availability Engine</a></li>
+<li><a href="#8-inventory--ingredient-management">Inventory &amp; Ingredient Management</a></li>
+<li><a href="#9-event-driven-architecture-kafka">Event-Driven Architecture (Kafka)</a></li>
+<li><a href="#10-caching-strategy-redis">Caching Strategy (Redis)</a></li>
+<li><a href="#11-database-design--erd">Database Design &amp; ERD</a></li>
+<li><a href="#12-real-time-updates-sse">Real-Time Updates (SSE)</a></li>
+<li><a href="#13-transactional-outbox-pattern">Transactional Outbox Pattern</a></li>
+<li><a href="#14-key-design-patterns-used">Key Design Patterns Used</a></li>
+<li><a href="#15-testing-strategy">Testing Strategy</a></li>
+<li><a href="#16-scalability-considerations">Scalability Considerations</a></li>
+<li><a href="#17-common-interview-questions--answers">Common Interview Questions &amp; Answers</a></li>
+</ol>
+<hr />
+<h2>1. System Overview &amp; Tech Stack</h2>
+<h3>What is SavoryStay?</h3>
+<p>SavoryStay is a <strong>multi-tenant restaurant operations platform</strong> that handles the complete lifecycle from customer ordering through kitchen preparation to payment and completion. It supports multiple restaurants under a single deployment, each with isolated data, staff, menus, and customers.</p>
+<h3>Tech Stack</h3>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technology</th>
+<th>Why Chosen</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Frontend</strong></td>
+<td>React 19, TypeScript, Vite, Tailwind CSS</td>
+<td>Type safety, fast builds, utility-first CSS</td>
+</tr>
+<tr>
+<td><strong>Backend</strong></td>
+<td>Spring Boot 3.2, Java 17+</td>
+<td>Enterprise-grade security, mature ecosystem, JPA</td>
+</tr>
+<tr>
+<td><strong>Database</strong></td>
+<td>MySQL 8</td>
+<td>ACID compliance, mature, good JSON support</td>
+</tr>
+<tr>
+<td><strong>Message Queue</strong></td>
+<td>Apache Kafka</td>
+<td>Distributed, durable, event sourcing</td>
+</tr>
+<tr>
+<td><strong>Cache</strong></td>
+<td>Redis</td>
+<td>In-memory, pub/sub, TTL support</td>
+</tr>
+<tr>
+<td><strong>Security</strong></td>
+<td>Spring Security 6.2, JWT</td>
+<td>Stateless auth, role-based access</td>
+</tr>
+<tr>
+<td><strong>Real-Time</strong></td>
+<td>Server-Sent Events (SSE)</td>
+<td>One-way push, simpler than WebSocket</td>
+</tr>
+<tr>
+<td><strong>Payments</strong></td>
+<td>Stripe SDK, PayPal SDK</td>
+<td>Industry standard, PCI compliance</td>
+</tr>
+<tr>
+<td><strong>SMS</strong></td>
+<td>Twilio SDK</td>
+<td>Reliable OTP delivery</td>
+</tr>
+<tr>
+<td><strong>Email</strong></td>
+<td>Spring Mail (Gmail SMTP)</td>
+<td>OTP delivery, notifications</td>
+</tr>
+<tr>
+<td><strong>Testing</strong></td>
+<td>JUnit 5, Mockito, Testcontainers</td>
+<td>Unit, integration, and containerized DB tests</td>
+</tr>
+</tbody>
+</table>
+<h3>Architecture Diagram (Logical)</h3>
+<pre class="codehilite"><code>┌──────────────────────────────────────────────────────────────────┐
+│                         CLIENT LAYER                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │  Customer UI  │  │  Staff UI    │  │  Manager UI  │           │
+│  │  (React SPA)  │  │  (Kitchen)   │  │  (Dashboard) │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+│         └─────────────────┼─────────────────┘                    │
+│                           │ HTTPS + JWT                           │
+├───────────────────────────┼──────────────────────────────────────┤
+│                     API GATEWAY LAYER                             │
+│  ┌────────────────────────┴────────────────────────────────┐     │
+│  │              TenantContextFilter                         │     │
+│  │         (extracts restaurant from JWT)                   │     │
+│  ├──────────────────────────────────────────────────────────┤     │
+│  │              JwtAuthenticationFilter                     │     │
+│  │         (validates token, sets SecurityContext)          │     │
+│  └────────────────────────┬─────────────────────────────────┘     │
+├───────────────────────────┼──────────────────────────────────────┤
+│                     SERVICE LAYER                                 │
+│  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐      │
+│  │ Order   │  │ Payment  │  │ Menu     │  │ PreOrder     │      │
+│  │ Service │  │ Service  │  │ Service  │  │ Availability │      │
+│  └────┬────┘  └────┬─────┘  └────┬─────┘  └──────┬───────┘      │
+│       │             │             │                │               │
+│  ┌────┴────┐  ┌─────┴─────┐  ┌───┴────┐  ┌───────┴──────┐      │
+│  │ Audit   │  │ Refund    │  │Ingredient│  │Notification  │      │
+│  │ Service │  │ Service   │  │ Service │  │ Service      │      │
+│  └─────────┘  └───────────┘  └─────────┘  └──────────────┘      │
+├──────────────────────────────────────────────────────────────────┤
+│                     DATA &amp; MESSAGING LAYER                        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐     │
+│  │  MySQL   │  │  Redis   │  │  Kafka   │  │   SSE        │     │
+│  │  (JPA)   │  │ (Cache)  │  │ (Events) │  │ (Real-time)  │     │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────────┘     │
+└──────────────────────────────────────────────────────────────────┘
+</code></pre>
+
+<hr />
+<h2>2. Architecture &amp; Design Patterns</h2>
+<h3>2.1 Layered Architecture</h3>
+<p>The application follows a classic <strong>3-tier layered architecture</strong>:</p>
+<pre class="codehilite"><code>Controller (REST API) → Service (Business Logic) → Repository (Data Access)
+</code></pre>
+
+<p>Each layer has a single responsibility:
+- <strong>Controllers</strong>: HTTP request/response handling, input validation, role checking
+- <strong>Services</strong>: Business rules, state transitions, orchestration
+- <strong>Repositories</strong>: Database queries via Spring Data JPA</p>
+<h3>2.2 Key Design Patterns</h3>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Where Used</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>State Machine</strong></td>
+<td><code>OrderStateMachine</code></td>
+<td>Enforce valid order status transitions</td>
+</tr>
+<tr>
+<td><strong>Repository Pattern</strong></td>
+<td>Spring Data JPA repos</td>
+<td>Abstract data access, enable testing</td>
+</tr>
+<tr>
+<td><strong>Strategy Pattern</strong></td>
+<td>Payment gateway selection</td>
+<td>Stripe vs PayPal vs Cash processing</td>
+</tr>
+<tr>
+<td><strong>Template Method</strong></td>
+<td><code>ChannelDeliveryService</code></td>
+<td>SMS, Email, WhatsApp delivery channels</td>
+</tr>
+<tr>
+<td><strong>Observer Pattern</strong></td>
+<td>Kafka consumers</td>
+<td>Decouple order events from notifications</td>
+</tr>
+<tr>
+<td><strong>Transactional Outbox</strong></td>
+<td><code>OutboxService</code> + <code>OutboxPoller</code></td>
+<td>Reliable event publishing</td>
+</tr>
+<tr>
+<td><strong>CQRS (Light)</strong></td>
+<td>Separate read/write for dashboard</td>
+<td>Optimized queries for analytics</td>
+</tr>
+<tr>
+<td><strong>Circuit Breaker Concept</strong></td>
+<td>Idempotency keys</td>
+<td>Prevent duplicate payments/events</td>
+</tr>
+<tr>
+<td><strong>Audit Trail</strong></td>
+<td><code>AuditService</code></td>
+<td>Append-only record of all mutations</td>
+</tr>
+<tr>
+<td><strong>Multi-Tenancy</strong></td>
+<td><code>TenantContext</code> + <code>TenantContextFilter</code></td>
+<td>Data isolation per restaurant</td>
+</tr>
+</tbody>
+</table>
+<h3>2.3 Design Decisions &amp; Trade-offs</h3>
+<p><strong>Q: Why Spring Boot over Node.js?</strong>
+- Spring Security provides enterprise-grade RBAC
+- JPA/Hibernate for complex relational queries
+- Transaction management with <code>@Transactional</code>
+- Strong typing prevents runtime errors</p>
+<p><strong>Q: Why Kafka over RabbitMQ?</strong>
+- Durable message retention (replay capability)
+- Partitioned topics for scalability
+- Consumer groups for parallel processing
+- Built-in dead-letter topic support</p>
+<p><strong>Q: Why SSE over WebSocket?</strong>
+- Customer order updates are one-way (server → client)
+- Simpler implementation, automatic reconnection
+- Works through HTTP proxies/CDNs
+- WebSocket needed only for bidirectional chat (not a requirement)</p>
+<p><strong>Q: Why MySQL over PostgreSQL?</strong>
+- Team familiarity
+- Excellent JSON support for flexible data
+- Mature replication and tooling
+- Sufficient for the expected load profile</p>
+<hr />
+<h2>3. Multi-Tenancy Architecture</h2>
+<h3>3.1 Tenant Isolation Strategy</h3>
+<p>SavoryStay uses <strong>shared database, shared schema</strong> multi-tenancy with a <code>restaurant_id</code> column on every tenant-scoped table.</p>
+<pre class="codehilite"><code>┌─────────────────────────────────────┐
+│         JWT Token                    │
+│  ┌─────────────────────────────┐    │
+│  │ sub: usr_123                │    │
+│  │ roles: [ROLE_MANAGER]       │    │
+│  │ restaurantId: rest_01       │◄───┼── Extracted at request entry
+│  └─────────────────────────────┘    │
+└─────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────┐
+│      TenantContextFilter            │
+│  - Extracts restaurantId from JWT   │
+│  - Stores in ThreadLocal            │
+│  - Available to all service layers  │
+└─────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────┐
+│      TenantContext                   │
+│  static String getCurrentRestaurant()│
+│  - Used in every repository query    │
+│  - Never trusts client-provided ID   │
+└─────────────────────────────────────┘
+</code></pre>
+
+<h3>3.2 How Isolation is Enforced</h3>
+<p>Every repository query filters by <code>restaurant_id</code>:</p>
+<pre class="codehilite"><code class="language-java">// IngredientRepository
+List&lt;Ingredient&gt; findByRestaurantIdAndActiveTrue(String restaurantId);
+
+// MenuItemRepository  
+List&lt;MenuItem&gt; findByRestaurantIdAndStatus(String restaurantId, String status);
+
+// OrderRepository
+List&lt;Order&gt; findByRestaurantIdAndOrderStatus(String restaurantId, String status);
+</code></pre>
+
+<p><strong>Critical rule</strong>: The <code>restaurantId</code> is NEVER taken from the request body. It always comes from <code>TenantContext.getCurrentRestaurant()</code>, which is derived from the JWT.</p>
+<h3>3.3 Cross-Tenant Access Prevention</h3>
+<pre class="codehilite"><code class="language-java">// In OrderService
+public Order getOrder(String orderId) {
+    Order order = orderRepository.findById(orderId)
+        .orElseThrow(() -&gt; new RuntimeException(&quot;Order not found&quot;));
+
+    if (!order.getRestaurantId().equals(TenantContext.getCurrentRestaurant())) {
+        throw new SecurityException(&quot;Access denied — cross-tenant violation&quot;);
+    }
+    return order;
+}
+</code></pre>
+
+<h3>3.4 Customer Multi-Restaurant Membership</h3>
+<p>Customers can belong to multiple restaurants:</p>
+<pre class="codehilite"><code>Customer (usr_001)
+    ├── Restaurant A (rest_01) — can browse menu, place orders
+    ├── Restaurant B (rest_02) — can browse menu, place orders
+    └── Restaurant C (rest_03) — can browse menu, place orders
+
+When customer switches restaurant:
+    1. New JWT issued with updated restaurantId
+    2. TenantContext switches
+    3. All subsequent queries scope to new restaurant
+</code></pre>
+
+<hr />
+<h2>4. Authentication &amp; Authorization</h2>
+<h3>4.1 Authentication Flow</h3>
+<pre class="codehilite"><code>┌──────────┐         ┌──────────┐         ┌──────────┐
+│  Client   │         │  Auth    │         │ Database │
+└─────┬────┘         └────┬─────┘         └────┬─────┘
+      │  POST /auth/login  │                    │
+      │  {email, password} │                    │
+      ├───────────────────►│                    │
+      │                    │  findByEmail()     │
+      │                    ├───────────────────►│
+      │                    │  User entity       │
+      │                    │◄───────────────────│
+      │                    │                    │
+      │                    │  BCrypt.matches()  │
+      │                    │  password valid?   │
+      │                    │                    │
+      │                    │  Generate JWT:     │
+      │                    │  - sub: userId     │
+      │                    │  - roles: [ROLE_*] │
+      │                    │  - restaurantId    │
+      │                    │  - exp: 1 hour     │
+      │                    │                    │
+      │  {token, user}     │                    │
+      │◄───────────────────│                    │
+      │                    │                    │
+      │  GET /api/v1/...   │                    │
+      │  Authorization:    │                    │
+      │  Bearer &lt;jwt&gt;      │                    │
+      ├───────────────────►│                    │
+      │                    │  JwtAuthFilter     │
+      │                    │  validates token   │
+      │                    │  sets SecurityCtx  │
+      │                    │  TenantContext     │
+      │                    │                    │
+      │  200 OK            │                    │
+      │◄───────────────────│                    │
+</code></pre>
+
+<h3>4.2 OTP Flow (Passwordless Login)</h3>
+<pre class="codehilite"><code>┌──────────┐    POST /auth/send-otp     ┌──────────┐
+│  Client   ├───────────────────────────►│  Server   │
+│           │    {phoneOrEmail}          │           │
+│           │                            │  Generate │
+│           │                            │  6-digit  │
+│           │                            │  OTP      │
+│           │                            │           │
+│           │  {demoOtp, expiresIn}     │  Store in │
+│           │◄───────────────────────────│  DB+Redis │
+│           │                            │           │
+│           │  POST /auth/verify-otp     │  Verify   │
+│           ├───────────────────────────►│  OTP      │
+│           │  {phoneOrEmail, otp}       │           │
+│           │                            │  Mark     │
+│           │  {verified: true}          │  verified │
+│           │◄───────────────────────────│           │
+│           │                            │           │
+│           │  POST /auth/register       │  Check    │
+│           │  (with verified OTP)       │  OTP      │
+│           ├───────────────────────────►│  status   │
+│           │                            │           │
+│           │  {token, user}             │  Create   │
+│           │◄───────────────────────────│  user     │
+└──────────┘                            └──────────┘
+</code></pre>
+
+<h3>4.3 Role-Based Authorization</h3>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Permissions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CUSTOMER</strong></td>
+<td>Browse menu, place orders, track orders, cancel (NEW only)</td>
+</tr>
+<tr>
+<td><strong>CHEF</strong></td>
+<td>Update order status (PREPARING, PACKED_READY), view kitchen queue</td>
+</tr>
+<tr>
+<td><strong>MANAGER</strong></td>
+<td>Full menu/order/inventory management, refunds, dashboard</td>
+</tr>
+<tr>
+<td><strong>ADMIN</strong></td>
+<td>Staff management, customer membership, system config</td>
+</tr>
+<tr>
+<td><strong>SUPER_ADMIN</strong></td>
+<td>Chain-wide access with explicit restaurant scope</td>
+</tr>
+</tbody>
+</table>
+<h3>4.4 JWT Token Structure</h3>
+<pre class="codehilite"><code class="language-json">{
+  &quot;sub&quot;: &quot;usr_abc123&quot;,
+  &quot;username&quot;: &quot;manager_admin&quot;,
+  &quot;email&quot;: &quot;admin@savorystay.com&quot;,
+  &quot;restaurantId&quot;: &quot;rest_01&quot;,
+  &quot;roles&quot;: [&quot;ROLE_MANAGER&quot;],
+  &quot;iss&quot;: &quot;SavoryStay_Auth_Server&quot;,
+  &quot;iat&quot;: 1692230400,
+  &quot;exp&quot;: 1692234000
+}
+</code></pre>
+
+<ul>
+<li><strong>Access Token</strong>: 1 hour lifetime</li>
+<li><strong>Refresh Token</strong>: 30 days (with token family for revocation)</li>
+<li><strong>Signing</strong>: HMAC-SHA256</li>
+</ul>
+<hr />
+<h2>5. Order Lifecycle &amp; State Machine</h2>
+<h3>5.1 State Diagram</h3>
+<pre class="codehilite"><code>                    ┌──────────┐
+                    │   NEW    │
+                    └────┬─────┘
+                         │
+           ┌─────────────┼─────────────┐
+           │             │             │
+           ▼             ▼             ▼
+    ┌──────────┐  ┌──────────┐  ┌──────────┐
+    │PREPARING │  │CANCELLED │  │ DECLINED │
+    └────┬─────┘  └──────────┘  └──────────┘
+         │
+         │
+         ▼
+    ┌──────────────┐
+    │ PACKED_READY │
+    └────┬─────────┘
+         │
+    ┌────┴────────────┐
+    │                 │
+    ▼                 ▼
+┌──────────┐    ┌──────────┐
+│COMPLETED │    │CANCELLED │
+└──────────┘    └──────────┘
+</code></pre>
+
+<h3>5.2 Valid Transitions (OrderStateMachine)</h3>
+<pre class="codehilite"><code class="language-java">public class OrderStateMachine {
+
+    private static final Map&lt;String, Set&lt;String&gt;&gt; TRANSITIONS = Map.of(
+        &quot;NEW&quot;,          Set.of(&quot;PREPARING&quot;, &quot;CANCELLED&quot;, &quot;DECLINED&quot;),
+        &quot;PREPARING&quot;,    Set.of(&quot;PACKED_READY&quot;, &quot;CANCELLED&quot;, &quot;DECLINED&quot;),
+        &quot;PACKED_READY&quot;, Set.of(&quot;COMPLETED&quot;, &quot;CANCELLED&quot;),
+        &quot;COMPLETED&quot;,    Set.of(),  // terminal
+        &quot;CANCELLED&quot;,    Set.of(),  // terminal
+        &quot;DECLINED&quot;,     Set.of()   // terminal
+    );
+
+    public static void validate(String from, String to) {
+        if (!TRANSITIONS.getOrDefault(from, Set.of()).contains(to)) {
+            throw new IllegalStateException(
+                &quot;Order cannot transition from &quot; + from + &quot; to &quot; + to);
+        }
+    }
+}
+</code></pre>
+
+<h3>5.3 Role-Based Transition Validation</h3>
+<pre class="codehilite"><code class="language-java">// Chef can only cook and pack
+if (isChef &amp;&amp; !Set.of(&quot;PREPARING&quot;, &quot;PACKED_READY&quot;).contains(newStatus)) {
+    throw new SecurityException(&quot;Chef can only set PREPARING or PACKED_READY&quot;);
+}
+
+// Customer can only cancel NEW orders
+if (isCustomer &amp;&amp; !(&quot;CANCELLED&quot;.equals(newStatus) &amp;&amp; &quot;NEW&quot;.equals(currentStatus))) {
+    throw new SecurityException(&quot;Customers can only cancel NEW orders&quot;);
+}
+</code></pre>
+
+<h3>5.4 Order vs Payment Status (Separated)</h3>
+<pre class="codehilite"><code class="language-java">// These are INDEPENDENT lifecycles
+
+Order Status:     NEW → PREPARING → PACKED_READY → COMPLETED
+Payment Status:   PENDING → PAID
+                  PENDING → FAILED
+                  PAID → REFUND_PENDING → REFUNDED
+
+// Cash order example:
+Order:  NEW (payment = PENDING)
+    → Staff marks paid at counter (payment = PAID)
+    → Kitchen prepares (order = PREPARING)
+    → Completion (order = COMPLETED)
+</code></pre>
+
+<h3>5.5 Idempotency in Order Confirmation</h3>
+<pre class="codehilite"><code class="language-java">public Order confirmPayment(String orderId, String gateway, BigDecimal amount) {
+    Order order = getOrder(orderId);
+
+    // Idempotent: already paid
+    if (&quot;PAID&quot;.equals(order.getPaymentStatus())) {
+        return order; // return existing, don't reprocess
+    }
+
+    // CASH orders: don't process online
+    if (&quot;CASH&quot;.equalsIgnoreCase(gateway)) {
+        throw new IllegalStateException(&quot;Cash orders are paid at counter&quot;);
+    }
+
+    // Amount validation
+    if (amount.compareTo(order.getTotalAmount()) != 0) {
+        throw new IllegalArgumentException(&quot;Amount mismatch&quot;);
+    }
+
+    // Create payment record
+    Payment payment = createPayment(order, gateway, amount);
+    order.setPaymentStatus(&quot;PAID&quot;);
+
+    return order;
+}
+</code></pre>
+
+<hr />
+<h2>6. Payment System</h2>
+<h3>6.1 Payment Flow — Online Payment</h3>
+<pre class="codehilite"><code>┌──────────┐   POST /orders      ┌──────────┐   Create Intent   ┌─────────┐
+│ Customer  ├──────────────────►  │  Order   ├──────────────────►│ Stripe/  │
+│           │   {items, pickup,  │  Service  │                   │ PayPal   │
+│           │    payment: &quot;STRIPE&quot;}         │                   └────┬────┘
+│           │                    │           │                        │
+│           │                    │           │  clientSecret          │
+│           │  {orderId,         │           │◄───────────────────────│
+│           │   clientSecret}    │           │                        │
+│           │◄───────────────────│           │                        │
+│           │                    │           │                        │
+│           │  POST /payments/   │           │                        │
+│           │  confirm           │           │                        │
+│           ├───────────────────►│           │                        │
+│           │  {paymentMethod}   │           │  Charge               │
+│           │                    │           ├───────────────────────►│
+│           │                    │           │  {status: &quot;succeeded&quot;}│
+│           │                    │           │◄───────────────────────│
+│           │                    │           │                        │
+│           │                    │  Payment = PAID                   │
+│           │                    │  Order = NEW (payment confirmed)  │
+│           │                    │  Audit recorded                   │
+│           │  {order, receipt}  │           │                        │
+│           │◄───────────────────│           │                        │
+└──────────┘                    └──────────┘                        └─────────┘
+</code></pre>
+
+<h3>6.2 Payment Flow — Cash (Pay-on-Pickup)</h3>
+<pre class="codehilite"><code>┌──────────┐                    ┌──────────┐                    ┌──────────┐
+│ Customer  │   POST /orders     │  Order   │                    │ Kitchen  │
+│           ├──────────────────► │  Service │                    │          │
+│           │  {payment: &quot;CASH&quot;} │          │                    │          │
+│           │                    │ Order = NEW                   │          │
+│           │                    │ Payment = PENDING              │          │
+│           │  {orderId}         │          │                    │          │
+│           │◄───────────────────│          │                    │          │
+│           │                    │          │                    │          │
+│           │   Pickup time      │          │  Notify kitchen    │          │
+│           │                    │          ├───────────────────►│          │
+│           │                    │          │                    │          │
+│           │                    │          │  Staff: &quot;Mark paid&quot; │          │
+│           │                    │          │◄───────────────────│          │
+│           │                    │ Payment = PAID                │          │
+│           │                    │          │                    │          │
+│           │                    │ Order → PREPARING             │          │
+│           │                    │          ├───────────────────►│          │
+│           │                    │          │                    │ Cook     │
+│           │                    │          │◄───────────────────│          │
+│           │                    │          │  Packed            │          │
+│           │                    │          │  Order → COMPLETED │          │
+└──────────┘                    └──────────┘                    └──────────┘
+</code></pre>
+
+<h3>6.3 Payment Idempotency</h3>
+<pre class="codehilite"><code>Scenario: Customer double-clicks &quot;Pay&quot;
+
+Request 1: confirmPayment(order_123, STRIPE, 500)
+    → Payment created (id: pay_abc)
+    → Order.paymentStatus = PAID
+    → Return success
+
+Request 2: confirmPayment(order_123, STRIPE, 500)
+    → Check: Order.paymentStatus == PAID
+    → Idempotent: return existing order
+    → NO duplicate payment created
+    → NO double charge
+</code></pre>
+
+<h3>6.4 Refund Lifecycle</h3>
+<pre class="codehilite"><code>┌──────────┐
+│ REQUESTED │  ← Staff initiates refund
+└────┬─────┘
+     │
+     ▼
+┌──────────┐
+│PROCESSING │  ← Sent to payment gateway
+└────┬─────┘
+     │
+  ┌──┴──┐
+  │     │
+  ▼     ▼
+┌────────┐  ┌────────┐
+│COMPLETED│  │ FAILED │  ← Gateway response
+└────────┘  └────────┘
+
+Side effects on complete:
+  - Order.paymentStatus → REFUNDED
+  - Payment.status → REFUNDED
+  - Audit trail recorded
+  - Notification sent
+</code></pre>
+
+<hr />
+<h2>7. Pre-Order Availability Engine</h2>
+<h3>7.1 Pre-Order Rules</h3>
+<p>The system enforces several rules to determine if a dish can be pre-ordered:</p>
+<pre class="codehilite"><code>Can the customer order Dish X for Day Y?
+
+Rule 1: Is the restaurant open on Day Y?
+    → Check RestaurantOperatingHour for day-of-week
+    → Check holiday closures in PreOrderSettings
+
+Rule 2: Is the dish available on Day Y?
+    → Check DishAvailability (weekly schedule)
+    → Check DishSlotOverride (one-off exceptions)
+
+Rule 3: Is the order within the cutoff window?
+    → PreOrderSettings has cutoffTime (e.g., 2:00 PM)
+    → Orders placed after cutoff are for next available day
+
+Rule 4: Is it within the booking horizon?
+    → PreOrderSettings has maxAdvanceDays (e.g., 7 days)
+    → Cannot order more than 7 days ahead
+</code></pre>
+
+<h3>7.2 7-Day Calendar Availability</h3>
+<pre class="codehilite"><code>Customer opens pre-order calendar:
+
+        Mon   Tue   Wed   Thu   Fri   Sat   Sun
+Biryani  ✅    ✅    ✅    ✅    ✅    ❌    ❌
+Paneer   ✅    ✅    ✅    ✅    ✅    ✅    ✅
+Cake     ❌    ❌    ❌    ✅    ✅    ✅    ✅
+
+Today: Wednesday
+Max advance: 7 days
+Cutoff: 2:00 PM
+
+If now = 3:00 PM → Wednesday unavailable, earliest = Thursday
+If now = 1:00 PM → Wednesday available (if open)
+</code></pre>
+
+<h3>7.3 Pre-Order Availability Service Flow</h3>
+<pre class="codehilite"><code class="language-java">public DishAvailabilityResponse checkAvailability(
+        String dishId, LocalDate date, LocalTime time) {
+
+    // 1. Restaurant open?
+    if (!restaurantService.isOpen(restaurantId, date.getDayOfWeek())) {
+        return unavailable(&quot;Restaurant closed&quot;);
+    }
+
+    // 2. Holiday?
+    if (preOrderConfigService.isHoliday(restaurantId, date)) {
+        return unavailable(&quot;Holiday&quot;);
+    }
+
+    // 3. Dish available on this day?
+    if (!dishAvailabilityService.isAvailable(dishId, date)) {
+        return unavailable(&quot;Dish not scheduled&quot;);
+    }
+
+    // 4. Slot override?
+    Optional&lt;DishSlotOverride&gt; override = 
+        dishSlotOverrideRepository.findByDishIdAndDate(dishId, date);
+    if (override.isPresent()) {
+        return override.get().isAvailable() 
+            ? available() : unavailable(&quot;Override: unavailable&quot;);
+    }
+
+    // 5. Within cutoff?
+    if (preOrderConfigService.isPastCutoff(restaurantId, date, time)) {
+        return unavailable(&quot;Past cutoff time&quot;);
+    }
+
+    return available();
+}
+</code></pre>
+
+<hr />
+<h2>8. Inventory &amp; Ingredient Management</h2>
+<h3>8.1 Ingredient as Master Data</h3>
+<pre class="codehilite"><code>Restaurant
+    │
+    ├── Ingredient #101 (Rice)
+    │       ├── MenuItemIngredient → Biryani (500g)
+    │       ├── MenuItemIngredient → Pulao (300g)
+    │       ├── InventoryLedger → current stock: 25 kg
+    │       └── Forecast → aggregated demand
+    │
+    ├── Ingredient #102 (Chicken)
+    │       ├── MenuItemIngredient → Biryani (250g)
+    │       ├── MenuItemIngredient → Butter Chicken (300g)
+    │       └── InventoryLedger → current stock: 18 kg
+    │
+    └── Ingredient #103 (Ghee)
+            └── ...
+</code></pre>
+
+<p><strong>Key principle</strong>: Ingredient ID is the canonical identity, NOT the name.</p>
+<h3>8.2 Ingredient Name Normalization</h3>
+<pre class="codehilite"><code class="language-java">public class IngredientNormalization {
+
+    // &quot;  Chicken   Breast  &quot; → &quot;chicken breast&quot;
+    // &quot;RICE&quot; → &quot;rice&quot;
+    // &quot;riCe&quot; → &quot;rice&quot;
+    public static String normalize(String name) {
+        return name.trim()
+                   .toLowerCase()
+                   .replaceAll(&quot;\\s+&quot;, &quot; &quot;);
+    }
+}
+
+// Database constraint:
+// UNIQUE(restaurant_id, normalized_name)
+// → Prevents duplicates within a restaurant
+// → Same name allowed across restaurants
+</code></pre>
+
+<h3>8.3 Inventory Lifecycle</h3>
+<pre class="codehilite"><code>Ingredient: Chicken (stock: 18 kg)
+
+Order placed → PREPARING:
+    → Deduct: 18 kg - 0.5 kg = 17.5 kg
+    → Ledger entry: CONSUMPTION, -0.5 kg
+
+Order cancelled:
+    → Release: 17.5 kg + 0.5 kg = 18 kg
+    → Ledger entry: CANCELLATION_RELEASE, +0.5 kg
+
+Adjustment:
+    → Manual: 18 kg → 20 kg
+    → Ledger entry: PURCHASE, +2 kg
+    → Reason: &quot;Weekly chicken delivery&quot;
+</code></pre>
+
+<h3>8.4 Ingredient Forecast Aggregation</h3>
+<pre class="codehilite"><code>Tomorrow's pre-orders:
+    10x Biryani (requires 500g Rice each)
+     5x Pulao   (requires 300g Rice each)
+     3x Risotto (requires 400g Rice each)
+
+Forecast (by ingredient ID):
+    Rice #101: (10 × 500g) + (5 × 300g) + (3 × 400g)
+             = 5000g + 1500g + 1200g
+             = 7.7 kg
+
+    Current stock: 25 kg
+    After production: 25 - 7.7 = 17.3 kg
+    Shortfall: 0 (sufficient)
+</code></pre>
+
+<p><strong>Critical</strong>: Aggregation is by <code>ingredientId</code>, NOT by name. This eliminates name-based errors.</p>
+<hr />
+<h2>9. Event-Driven Architecture (Kafka)</h2>
+<h3>9.1 Event Flow</h3>
+<pre class="codehilite"><code>┌──────────┐   Publish Event   ┌──────────┐   Consume Event   ┌──────────┐
+│ Order    ├──────────────────►│  Kafka   ├──────────────────►│ OTP      │
+│ Service  │   otp.generated   │  Topic   │   otp.generated   │ Consumer │
+│          │                   │          │                   │          │
+│          │   order.placed    │          │   order.placed    │ Order    │
+│          ├──────────────────►│          ├──────────────────►│ Consumer │
+│          │                   │          │                   │          │
+│          │   payment.success │          │   payment.success │ Payment  │
+│          ├──────────────────►│          ├──────────────────►│ Consumer │
+│          │                   │          │                   │          │
+│          │   inventory.low   │          │   inventory.low   │ Inventory│
+│          ├──────────────────►│          ├──────────────────►│ Consumer │
+└──────────┘                   └──────────┘                   └──────────┘
+</code></pre>
+
+<h3>9.2 Kafka Configuration</h3>
+<pre class="codehilite"><code class="language-java">@Configuration
+public class KafkaTopicConfig {
+
+    @Bean
+    public NewTopic otpTopic() {
+        return TopicBuilder.name(&quot;savorystay.otp&quot;)
+            .partitions(3)
+            .replicas(1)
+            .build();
+    }
+
+    // Retry topic with backoff
+    // DLT (Dead Letter Topic) for failed messages
+}
+</code></pre>
+
+<h3>9.3 Retry &amp; Dead Letter Topic</h3>
+<pre class="codehilite"><code>Event published → savorystay.otp
+         │
+         ▼ (consumer fails)
+savorystay.otp-retry-4000  (4 second delay)
+         │
+         ▼ (still fails)
+savorystay.otp-retry-8000  (8 second delay)
+         │
+         ▼ (exhausted retries)
+savorystay.otp-dlt         (Dead Letter Topic)
+         │
+         ▼
+DltRecorder logs the failure for investigation
+</code></pre>
+
+<h3>9.4 Event Publishing (Transactional Outbox)</h3>
+<p>To ensure events are published <strong>exactly once</strong> even if Kafka is temporarily unavailable:</p>
+<pre class="codehilite"><code>Step 1: Business transaction begins
+Step 2: Business data written (order, payment, etc.)
+Step 3: Event written to outbox table (same transaction)
+Step 4: Transaction commits
+Step 5: Separate poller reads outbox and publishes to Kafka
+Step 6: Published event marked as sent in outbox
+</code></pre>
+
+<p>This guarantees:
+- If the transaction succeeds, the event WILL eventually be published
+- If the transaction fails, no event is created
+- Kafka outage doesn't lose events</p>
+<hr />
+<h2>10. Caching Strategy (Redis)</h2>
+<h3>10.1 What is Cached</h3>
+<table>
+<thead>
+<tr>
+<th>Cache Key Pattern</th>
+<th>TTL</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>menu:{restaurantId}</code></td>
+<td>5 min</td>
+<td>Menu items for a restaurant</td>
+</tr>
+<tr>
+<td><code>preorder:avail:{dishId}:{date}</code></td>
+<td>1 min</td>
+<td>Dish availability check</td>
+</tr>
+<tr>
+<td><code>otp:{phoneOrEmail}</code></td>
+<td>10 min</td>
+<td>OTP verification codes</td>
+</tr>
+<tr>
+<td><code>ratelimit:{ip}:{endpoint}</code></td>
+<td>Configurable</td>
+<td>Auth rate limiting</td>
+</tr>
+<tr>
+<td><code>session:{userId}</code></td>
+<td>1 hour</td>
+<td>Active sessions</td>
+</tr>
+</tbody>
+</table>
+<h3>10.2 Cache Invalidation</h3>
+<pre class="codehilite"><code>Menu updated by manager
+    → Invalidate cache: menu:{restaurantId}
+    → Next request fetches fresh data from DB
+    → Cache populated again
+
+Pre-order configuration changed
+    → Invalidate: preorder:avail:* for affected dishes
+    → Availability recalculated on next request
+</code></pre>
+
+<hr />
+<h2>11. Database Design &amp; ERD</h2>
+<h3>11.1 Core Entity Relationships</h3>
+<pre class="codehilite"><code>┌──────────────────────────────────────────────────────────────────┐
+│                        Restaurant                                 │
+│  id, name, description, phone, email, address, config           │
+└──────────┬──────────────────────────┬────────────────────────────┘
+           │                          │
+           │ has many                 │ has many
+           ▼                          ▼
+┌─────────────────────┐    ┌──────────────────────┐
+│       User           │    │     MenuItem          │
+│  id, username,       │    │  id, title, price,    │
+│  email, phone,       │    │  description, category│
+│  passwordHash, role  │    │  status, isVeg,       │
+└──────────┬──────────┘    │  spiceLevel, isSoldOut│
+           │                └──────┬───────────────┘
+           │                       │ has many
+           │                       ▼
+           │               ┌──────────────────────┐
+           │               │  MenuItemIngredient   │
+           │               │  id, menu_item_id,    │
+           │               │  ingredient_id,       │
+           │               │  quantity_per_unit,   │
+           │               │  unit                 │
+           │               └──────┬───────────────┘
+           │                      │ references
+           │                      ▼
+           │              ┌───────────────────┐
+           │              │    Ingredient      │
+           │              │  id, restaurant_id,│
+           │              │  display_name,     │
+           │              │  normalized_name,  │
+           │              │  base_unit, active │
+           │              └───────────────────┘
+           │
+           │ places many
+           ▼
+┌──────────────────────────────────────────────┐
+│                 Order                          │
+│  id, order_number, restaurant_id, user_id,    │
+│  order_status, payment_status, total_amount,  │
+│  order_type, pickup_time, cancelled_by,       │
+│  cancel_reason, cancelled_at                  │
+└──────┬──────────────┬────────────────────────┘
+       │              │
+       │ has many     │ has one/many
+       ▼              ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│  OrderItem   │  │   Payment    │  │    Refund     │
+│  id, order_id│  │  id, order_id│  │  id, order_id│
+│  menu_item_id│  │  gateway,    │  │  payment_id, │
+│  quantity,   │  │  amount,     │  │  amount,     │
+│  unit_price, │  │  status,     │  │  status,     │
+│  notes       │  │  txn_id      │  │  reason      │
+└──────────────┘  └──────────────┘  └──────────────┘
+
+┌──────────────────────┐  ┌──────────────────────┐
+│  InventoryLedger      │  │    AuditTrail         │
+│  id, ingredient_id,   │  │  id, restaurant_id,   │
+│  quantity_delta, unit,│  │  actor_user_id, action│
+│  reason, reference_id,│  │  entity_type, entity_id│
+│  performed_by,        │  │  old_value, new_value │
+│  restaurant_id        │  │  recorded_at          │
+└──────────────────────┘  └──────────────────────┘
+</code></pre>
+
+<h3>11.2 Key Database Constraints</h3>
+<pre class="codehilite"><code class="language-sql">-- Ingredient uniqueness per restaurant
+ALTER TABLE ingredients 
+ADD CONSTRAINT uq_ingredient_restaurant_name 
+UNIQUE (restaurant_id, normalized_name);
+
+-- No duplicate ingredients in a recipe
+ALTER TABLE menu_item_ingredients 
+ADD CONSTRAINT uq_recipe_ingredient 
+UNIQUE (menu_item_id, ingredient_id);
+
+-- Index for fast tenant queries
+CREATE INDEX idx_orders_restaurant_status 
+ON orders(restaurant_id, order_status);
+
+CREATE INDEX idx_menu_items_restaurant 
+ON menu_items(restaurant_id, status);
+
+CREATE INDEX idx_ingredients_restaurant_active 
+ON ingredients(restaurant_id, active);
+
+-- Audit trail indexes
+CREATE INDEX idx_audit_restaurant_recorded 
+ON audit_trail(restaurant_id, recorded_at DESC);
+
+CREATE INDEX idx_audit_entity 
+ON audit_trail(entity_type, entity_id);
+</code></pre>
+
+<hr />
+<h2>12. Real-Time Updates (SSE)</h2>
+<h3>12.1 SSE Architecture</h3>
+<pre class="codehilite"><code>┌──────────┐  GET /api/v1/sse/orders   ┌──────────┐
+│  Kitchen  ├──────────────────────────►│  SSE     │
+│  Screen   │  Connection stays open    │  Endpoint│
+│           │                           │          │
+│           │  Event: new-order         │          │
+│           │  {&quot;orderId&quot;:&quot;ord_123&quot;,    │          │
+│           │   &quot;dish&quot;:&quot;Biryani&quot;,       │          │
+│           │   &quot;qty&quot;:2}               │          │
+│           │◄──────────────────────────│          │
+│           │                           │          │
+│           │  Event: order-updated     │          │
+│           │  {&quot;orderId&quot;:&quot;ord_123&quot;,    │          │
+│           │   &quot;status&quot;:&quot;PACKED_READY&quot;}│          │
+│           │◄──────────────────────────│          │
+└──────────┘                           └──────────┘
+</code></pre>
+
+<h3>12.2 SSE vs WebSocket</h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>SSE</th>
+<th>WebSocket</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Direction</td>
+<td>Server → Client</td>
+<td>Bidirectional</td>
+</tr>
+<tr>
+<td>Protocol</td>
+<td>HTTP/1.1</td>
+<td>Custom (ws://)</td>
+</tr>
+<tr>
+<td>Auto-reconnect</td>
+<td>Built-in</td>
+<td>Manual</td>
+</tr>
+<tr>
+<td>Proxy-friendly</td>
+<td>Yes (standard HTTP)</td>
+<td>Sometimes blocked</td>
+</tr>
+<tr>
+<td>Use case</td>
+<td>Order updates, notifications</td>
+<td>Chat, collaboration</td>
+</tr>
+<tr>
+<td>Complexity</td>
+<td>Low</td>
+<td>Medium</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Decision</strong>: SSE was chosen because order updates are one-way (server pushes status changes). WebSocket would add unnecessary complexity.</p>
+<hr />
+<h2>13. Transactional Outbox Pattern</h2>
+<h3>13.1 Problem Solved</h3>
+<p>Without the outbox pattern, you face the <strong>dual-write problem</strong>:</p>
+<pre class="codehilite"><code>// UNRELIABLE (without outbox):
+@Transactional
+public Order placeOrder(Order order) {
+    orderRepo.save(order);           // Step 1: DB write ✅
+    kafka.publish(&quot;order.placed&quot;);   // Step 2: Kafka write ❌ (Kafka down!)
+}
+// Order saved but event lost → inconsistency
+</code></pre>
+
+<h3>13.2 Solution: Outbox Table</h3>
+<pre class="codehilite"><code>// RELIABLE (with outbox):
+@Transactional
+public Order placeOrder(Order order) {
+    orderRepo.save(order);                    // Step 1: DB write
+    outboxService.record(&quot;order.placed&quot;, payload);  // Step 2: Outbox write
+    // BOTH succeed or BOTH fail (same transaction)
+}
+
+// Later, a poller reads unsent outbox events:
+@Scheduled(fixedDelay = 5000)
+public void pollOutbox() {
+    List&lt;OutboxEvent&gt; unsent = outboxRepo.findBySentFalse();
+    for (OutboxEvent event : unsent) {
+        kafka.publish(event.getTopic(), event.getPayload());
+        event.setSent(true);
+        outboxRepo.save(event);
+    }
+}
+</code></pre>
+
+<h3>13.3 Guarantees</h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>What Happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DB commit succeeds, Kafka up</td>
+<td>Event published immediately</td>
+</tr>
+<tr>
+<td>DB commit succeeds, Kafka down</td>
+<td>Event stays in outbox, retried by poller</td>
+</tr>
+<tr>
+<td>DB commit fails</td>
+<td>No event recorded (atomic)</td>
+</tr>
+<tr>
+<td>Poller crashes</td>
+<td>Next poll picks up unsent events</td>
+</tr>
+<tr>
+<td>Kafka accepts but doesn't persist</td>
+<td>Outbox stays unsent, retried</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>14. Key Design Patterns Used</h2>
+<h3>14.1 Idempotency</h3>
+<p><strong>Where</strong>: Payment confirmation, webhook handling, order creation, refund initiation.</p>
+<pre class="codehilite"><code class="language-java">// Idempotent payment confirmation
+public Payment confirmPayment(String orderId, String gateway, BigDecimal amount) {
+    // Check if already processed
+    Optional&lt;Payment&gt; existing = paymentRepository.findByOrderIdAndStatus(orderId, &quot;PAID&quot;);
+    if (existing.isPresent()) {
+        return existing.get(); // Idempotent: return existing
+    }
+    // ... create new payment
+}
+</code></pre>
+
+<h3>14.2 Optimistic Locking</h3>
+<p><strong>Where</strong>: Inventory deduction to prevent overselling.</p>
+<pre class="codehilite"><code class="language-java">@Transactional
+public void consumeInventory(String ingredientId, BigDecimal quantity) {
+    Ingredient ingredient = ingredientRepository.findById(ingredientId)
+        .orElseThrow();
+
+    BigDecimal newStock = ingredient.getCurrentStock().subtract(quantity);
+    if (newStock.compareTo(BigDecimal.ZERO) &lt; 0) {
+        throw new InsufficientInventoryException(&quot;Not enough stock&quot;);
+    }
+
+    ingredient.setCurrentStock(newStock);
+    ingredientRepository.save(ingredient);
+    // JPA @Version field prevents concurrent overwrites
+}
+</code></pre>
+
+<h3>14.3 Circuit Breaker Concept</h3>
+<p><strong>Where</strong>: Kafka event publishing with retry and DLT.</p>
+<pre class="codehilite"><code>Normal flow:     Publish → Kafka topic
+                    ↓ (fails)
+Retry flow:      Publish → retry-4000 → retry-8000 → DLT
+                                              ↓
+                                    DltRecorder logs failure
+</code></pre>
+
+<h3>14.4 Strangler Fig Pattern</h3>
+<p><strong>Where</strong>: Migration from Express.js/Firebase to Spring Boot/MySQL.</p>
+<pre class="codehilite"><code>Phase 1: Spring Boot runs alongside Express
+Phase 2: New features built in Spring Boot only
+Phase 3: Express routes migrated one by one
+Phase 4: Express removed (current state)
+</code></pre>
+
+<h3>14.5 CQRS (Light)</h3>
+<p><strong>Where</strong>: Dashboard queries use optimized read models.</p>
+<pre class="codehilite"><code>Write path: Order → OrderService → OrderRepository → MySQL
+Read path:  DashboardController → Aggregate queries → DTO response
+
+Dashboard doesn't load full Order entities.
+It uses SQL aggregation:
+  SELECT order_status, COUNT(*) 
+  FROM orders WHERE restaurant_id = ? AND DATE(created_at) = CURDATE()
+  GROUP BY order_status
+</code></pre>
+
+<hr />
+<h2>15. Testing Strategy</h2>
+<h3>15.1 Test Pyramid</h3>
+<pre class="codehilite"><code>            ╱╲
+           ╱  ╲
+          ╱ E2E╲         ← Manual / Selenium (future)
+         ╱──────╲
+        ╱  Integration ╲  ← 18 Testcontainers tests
+       ╱────────────────╲
+      ╱    Unit Tests     ╲ ← 234 unit tests
+     ╱──────────────────────╲
+</code></pre>
+
+<h3>15.2 Test Categories</h3>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Count</th>
+<th>What's Tested</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Unit</strong></td>
+<td>234</td>
+<td>Services, state machine, DTOs, security</td>
+</tr>
+<tr>
+<td><strong>Integration</strong></td>
+<td>18</td>
+<td>Full Spring context + real MySQL via Testcontainers</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>252</strong></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>15.3 Key Test Scenarios</h3>
+<pre class="codehilite"><code class="language-java">// State Machine tests
+@Test void validTransition()     // NEW → PREPARING ✓
+@Test void invalidTransition()   // COMPLETED → PREPARING ✗
+@Test void terminalState()       // CANCELLED → anything ✗
+
+// Tenant Isolation tests
+@Test void crossTenantAccess()   // REST_A user accesses REST_B → 403
+
+// Payment Idempotency tests
+@Test void doubleConfirm()       // Same order confirmed twice → no duplicate
+
+// Refund tests
+@Test void refundLifecycle()     // REQUESTED → PROCESSING → COMPLETED
+@Test void refundIdempotent()    // Same refund initiated twice → returns existing
+
+// Inventory tests
+@Test void concurrentDeduction() // Two orders simultaneously → only one succeeds
+@Test void cancelReleasesStock() // Cancelled order returns inventory
+
+// Integration tests (Testcontainers)
+@SpringBootTest
+@Testcontainers
+class RefundAuditIntegrationTest {
+    @Container
+    static MySQLContainer&lt;?&gt; mysql = new MySQLContainer&lt;&gt;(&quot;mysql:8.0&quot;);
+
+    @Test void fullRefundLifecycle()    // Real DB, real transactions
+    @Test void auditTrailQuery()        // Complex aggregation queries
+    @Test void paymentIdempotency()     // End-to-end idempotency
+}
+</code></pre>
+
+<hr />
+<h2>16. Scalability Considerations</h2>
+<h3>16.1 Current Architecture Limits</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Bottleneck</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MySQL</td>
+<td>Single writer</td>
+<td>Read replicas (future)</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td>Single instance</td>
+<td>Redis Cluster (future)</td>
+</tr>
+<tr>
+<td>Kafka</td>
+<td>Single broker</td>
+<td>Multi-broker cluster (production)</td>
+</tr>
+<tr>
+<td>Spring Boot</td>
+<td>Vertical scaling</td>
+<td>Horizontal scaling behind LB</td>
+</tr>
+<tr>
+<td>SSE</td>
+<td>Connection limits</td>
+<td>Reverse proxy (Nginx) buffering</td>
+</tr>
+</tbody>
+</table>
+<h3>16.2 What Would Change at Scale</h3>
+<p><strong>10x traffic:</strong>
+- Add MySQL read replicas
+- Increase Kafka partitions
+- Add Redis Cluster
+- CDN for frontend static assets</p>
+<p><strong>100x traffic:</strong>
+- Consider CQRS with separate read/write databases
+- Event sourcing for order history
+- Microservice decomposition (order service, payment service, notification service)
+- Kubernetes orchestration</p>
+<h3>16.3 Query Optimization</h3>
+<pre class="codehilite"><code class="language-sql">-- Dashboard summary: aggregate query, not application-side loop
+SELECT 
+    order_status,
+    COUNT(*) as count,
+    SUM(total_amount) as revenue
+FROM orders 
+WHERE restaurant_id = ? 
+  AND DATE(created_at) = CURDATE()
+GROUP BY order_status;
+
+-- Ingredient forecast: aggregate by ingredient_id, not name
+SELECT 
+    i.id,
+    i.display_name,
+    SUM(mii.quantity_per_unit * oi.quantity) as total_required
+FROM order_items oi
+JOIN menu_item_ingredients mii ON oi.menu_item_id = mii.menu_item_id
+JOIN ingredients i ON mii.ingredient_id = i.id
+WHERE i.restaurant_id = ?
+  AND i.active = true
+GROUP BY i.id, i.display_name;
+</code></pre>
+
+<hr />
+<h2>17. Common Interview Questions &amp; Answers</h2>
+<h3>System Design Questions</h3>
+<p><strong>Q: How do you handle concurrent orders that might oversell inventory?</strong></p>
+<blockquote>
+<p>We use database-level atomic updates with JPA <code>@Version</code> optimistic locking. When an order is placed, the inventory deduction is atomic — if two concurrent orders try to consume the same stock, one will succeed and the other will get a <code>OptimisticLockException</code>. We catch this and return a user-friendly "insufficient inventory" error. Additionally, the <code>IngredientService</code> uses <code>@Transactional</code> to ensure the entire deduction is atomic.</p>
+</blockquote>
+<p><strong>Q: How does the system handle payment failures gracefully?</strong></p>
+<blockquote>
+<p>If an online payment fails, the order remains in <code>NEW</code> state with <code>PENDING</code> payment status. The customer can retry. We use idempotency keys to prevent double-charging. For webhook failures, the transactional outbox pattern ensures events are eventually published. Dead letter topics capture events that fail after all retries.</p>
+</blockquote>
+<p><strong>Q: How do you ensure tenant isolation in a shared database?</strong></p>
+<blockquote>
+<p>Every request goes through <code>TenantContextFilter</code> which extracts <code>restaurantId</code> from the JWT token. This is stored in a <code>ThreadLocal</code> via <code>TenantContext</code>. Every repository query filters by <code>restaurantId</code>. We NEVER trust the client-provided <code>restaurantId</code> — it always comes from the authenticated token. Cross-tenant access attempts return 403/400.</p>
+</blockquote>
+<p><strong>Q: Explain the transactional outbox pattern you used.</strong></p>
+<blockquote>
+<p>The problem: if we save an order and then publish to Kafka, and Kafka is down, we lose the event. The solution: we write the event to an <code>outbox_event</code> table in the same database transaction as the order. A separate <code>OutboxPoller</code> (scheduled task) reads unsent events and publishes them to Kafka. This guarantees exactly-once delivery semantics without distributed transactions.</p>
+</blockquote>
+<p><strong>Q: How would you design the pre-order availability system?</strong></p>
+<blockquote>
+<p>The system checks 5 rules in sequence: (1) Is the restaurant open? (2) Is it a holiday? (3) Is the dish scheduled for this day? (4) Are there one-off overrides? (5) Is it within the cutoff time? Each rule can independently reject the pre-order. The results are cached in Redis with a 1-minute TTL for performance.</p>
+</blockquote>
+<h3>Behavioral Questions</h3>
+<p><strong>Q: What was the most challenging part of this project?</strong></p>
+<blockquote>
+<p>The most challenging part was implementing the order-payment-inventory consistency model. Getting the transaction boundaries right — when to reserve inventory, when to consume it, what happens on cancellation, and how refunds interact — required careful analysis of every business event. The integration tests with Testcontainers were crucial in catching bugs like the refund idempotency issue.</p>
+</blockquote>
+<p><strong>Q: How did you approach the migration from Express/Firebase to Spring Boot/MySQL?</strong></p>
+<blockquote>
+<p>We used the Strangler Fig pattern. New features were built exclusively in Spring Boot. Existing functionality was migrated route by route. Firebase data was backed up and migrated to MySQL. The frontend was updated to call Spring Boot endpoints instead of Express. At no point was the application down during migration.</p>
+</blockquote>
+<p><strong>Q: How did you ensure code quality?</strong></p>
+<blockquote>
+<p>We followed a rigorous testing strategy: 234 unit tests for business logic, 18 integration tests with real MySQL via Testcontainers for critical flows. We used <code>@PreAuthorize</code> for authorization, <code>TenantContext</code> for isolation, and comprehensive error handling. The <code>GlobalExceptionHandler</code> ensures consistent error responses without exposing internals.</p>
+</blockquote>
+<hr />
+<h2>Appendix A: API Endpoint Summary</h2>
+<h3>Auth</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/auth/register</code></td>
+<td>Register with OTP verification</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/auth/login</code></td>
+<td>Login with email/password</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/auth/login-otp</code></td>
+<td>Login with OTP</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/auth/send-otp</code></td>
+<td>Send OTP to phone/email</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/auth/verify-otp</code></td>
+<td>Verify OTP code</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/auth/refresh</code></td>
+<td>Refresh JWT token</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/auth/me</code></td>
+<td>Current user profile</td>
+</tr>
+</tbody>
+</table>
+<h3>Orders</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/orders</code></td>
+<td>Place order</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/orders</code></td>
+<td>List orders (filtered by role)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/orders/{id}</code></td>
+<td>Get order details</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/orders/{id}/status</code></td>
+<td>Update order status (state machine)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/orders/{id}/cancel</code></td>
+<td>Cancel order</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/orders/{id}/refund</code></td>
+<td>Initiate refund</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/orders/{id}/confirm-payment</code></td>
+<td>Confirm payment</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/orders/{id}/items/{itemId}/notes</code></td>
+<td>Update kitchen notes</td>
+</tr>
+</tbody>
+</table>
+<h3>Kitchen</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/orders/kitchen/production</code></td>
+<td>Today's production view</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/orders/kitchen/delayed</code></td>
+<td>Delayed orders list</td>
+</tr>
+</tbody>
+</table>
+<h3>Menu</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/menu</code></td>
+<td>List menu items</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/menu</code></td>
+<td>Create menu item</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/menu/{id}</code></td>
+<td>Update menu item</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/menu/{id}</code></td>
+<td>Delete menu item</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/menu/{id}/sold-out</code></td>
+<td>Toggle sold-out status</td>
+</tr>
+</tbody>
+</table>
+<h3>Ingredients</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/ingredients</code></td>
+<td>List ingredients</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/ingredients</code></td>
+<td>Create ingredient</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/ingredients/{id}</code></td>
+<td>Update ingredient</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><code>/ingredients/{id}/status</code></td>
+<td>Activate/deactivate</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/ingredients/forecast</code></td>
+<td>Ingredient forecast</td>
+</tr>
+</tbody>
+</table>
+<h3>Dashboard</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/dashboard/summary</code></td>
+<td>Today's operational summary</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/dashboard/exceptions</code></td>
+<td>Operational exceptions</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/dashboard/shopping-list</code></td>
+<td>Shortfall ingredients</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/dashboard/cash-reconciliation</code></td>
+<td>Cash reconciliation</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/dashboard/payment-reconciliation</code></td>
+<td>Payment reconciliation</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/dashboard/tomorrow-brief</code></td>
+<td>Tomorrow's operations brief</td>
+</tr>
+</tbody>
+</table>
+<h3>Pre-Order</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/preorder/availability/{dishId}</code></td>
+<td>Check dish availability</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/preorder/calendar</code></td>
+<td>7-day availability calendar</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/preorder/settings</code></td>
+<td>Update pre-order config</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Appendix B: Technology Concepts Quick Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Concept</th>
+<th>What It Is</th>
+<th>Where Used</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>BCrypt</strong></td>
+<td>Password hashing algorithm</td>
+<td>User passwords</td>
+</tr>
+<tr>
+<td><strong>JWT</strong></td>
+<td>JSON Web Token for stateless auth</td>
+<td>All authenticated requests</td>
+</tr>
+<tr>
+<td><strong>JPA/Hibernate</strong></td>
+<td>ORM for database access</td>
+<td>All entity persistence</td>
+</tr>
+<tr>
+<td><strong>@Transactional</strong></td>
+<td>Declarative transaction management</td>
+<td>Service layer methods</td>
+</tr>
+<tr>
+<td><strong>Optimistic Locking</strong></td>
+<td>@Version field prevents lost updates</td>
+<td>Inventory deduction</td>
+</tr>
+<tr>
+<td><strong>Dead Letter Topic</strong></td>
+<td>Queue for undeliverable messages</td>
+<td>Failed Kafka events</td>
+</tr>
+<tr>
+<td><strong>CQRS</strong></td>
+<td>Separate read/write models</td>
+<td>Dashboard queries</td>
+</tr>
+<tr>
+<td><strong>Transactional Outbox</strong></td>
+<td>Reliable event publishing</td>
+<td>Kafka event delivery</td>
+</tr>
+<tr>
+<td><strong>SSE</strong></td>
+<td>Server-Sent Events for real-time push</td>
+<td>Order status updates</td>
+</tr>
+<tr>
+<td><strong>Multi-Tenancy</strong></td>
+<td>Data isolation per restaurant</td>
+<td>All data access</td>
+</tr>
+<tr>
+<td><strong>RBAC</strong></td>
+<td>Role-Based Access Control</td>
+<td>Authorization</td>
+</tr>
+<tr>
+<td><strong>Testcontainers</strong></td>
+<td>Docker-based integration testing</td>
+<td>MySQL integration tests</td>
+</tr>
+<tr>
+<td><strong>Idempotency</strong></td>
+<td>Same operation produces same result</td>
+<td>Payment, webhooks</td>
+</tr>
+<tr>
+<td><strong>Circuit Breaker</strong></td>
+<td>Fail gracefully when dependency is down</td>
+<td>Kafka retries + DLT</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>Document generated for SavoryStay — Technical Interview Preparation</em>
+<em>Last updated: August 2026</em></p>
+</body>
+</html>

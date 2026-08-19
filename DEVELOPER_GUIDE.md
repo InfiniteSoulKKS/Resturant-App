@@ -29,17 +29,20 @@ This is the single developer-facing reference for the project. It replaces all p
       │  HTTPS /api/v1/*  (Bearer JWT)
       ▼
  Spring Boot 3.2 (:8080)
- ├── Security: JwtAuthenticationFilter → TenantContextFilter → Method Security (@PreAuthorize)
- ├── Controllers: Auth, Otp, Restaurant, Menu, Order, Payment, Ingredient, Staff, Notification, PreOrder,
- │                CustomerRestaurant
- ├── Services: Otp, Order, Menu, Ingredient, PaymentGateway, Restaurant, Notification, Realtime,
- │             ChannelDelivery, EmailTemplate, PreOrderAvailability, PreOrderConfig, Outbox,
- │             CustomerRestaurant
- ├── Schedulers: OtpCleanupScheduler (15 min), OutboxPoller (3 s), PreOrderReminderScheduler (daily 08:45 IST)
- └── JPA Repositories → MySQL
+ ├── Security: SecurityConfig → JwtAuthenticationFilter → TenantContextFilter → Method Security (@PreAuthorize)
+ ├── Controllers (13): Auth, Otp, Restaurant, Menu, Order, Payment, Ingredient, Staff, Notification,
+ │                      PreOrder, Health, Dashboard, CustomerRestaurant
+ ├── Services (16): Otp, Order, Menu, Ingredient, PaymentGateway, Restaurant, Notification, Realtime,
+ │                  ChannelDelivery, EmailTemplate, PreOrderAvailability, PreOrderConfig, Outbox,
+ │                  CustomerRestaurant, Audit, KafkaEventPublisher, AuthRateLimit
+ ├── Schedulers (3): OtpCleanupScheduler (15 min), OutboxPoller (3 s), PreOrderReminderScheduler (daily 08:45 IST)
+ ├── Kafka Consumers: OtpNotification, OrderNotification, InventoryNotification, PaymentNotification
+ │                     + DltRecorder (dead-letter topic audit)
+ └── JPA Repositories (22) → MySQL
            │
            ├── Redis — rate limits / lockout state (fail-open)
            ├── Kafka — event backbone for notifications (see §7)
+           │    └── Topics: savorystay.orders │ savorystay.otp │ savorystay.inventory │ savorystay.payments
            ├── Stripe / PayPal / Twilio / SMTP — external providers
            └── SSE → browser realtime stream
 ```
@@ -91,19 +94,22 @@ This is the single developer-facing reference for the project. It replaces all p
 │   ├── pom.xml
 │   ├── .env.example                    # All environment variables documented
 │   └── src/main/java/com/savorystay/
-│       ├── SavoryStayApplication.java  # Main + startup secret validation
-│       ├── common/ (BusinessClock, IdGenerator, IngredientNormalization, UnitConverter)
-│       ├── config/ (SecurityConfig, DataSeeder, GlobalExceptionHandler, KafkaTopicConfig)
-│       ├── controller/ (Auth, Otp, Restaurant, Menu, Order, Payment, Ingredient, Staff, Notification, PreOrder, Health)
-│       ├── security/ (JwtTokenProvider, JwtAuthenticationFilter, RoleUtils)
-│       ├── tenant/ (TenantContext, TenantContextFilter)│   ├── entity/ (User, Restaurant, MenuItem, MenuItemIngredient, Order, OrderItem, Payment,
+│       ├── SavoryStayApplication.java  # Main + loadDotEnv() + startup secret validation
+│       ├── common/ (BusinessClock, IdGenerator, IngredientNormalization, OrderStateMachine, UnitConverter)
+│       ├── config/ (DataSeeder, GlobalExceptionHandler, KafkaTopicConfig, DatabaseSchemaMigration)
+│       ├── controller/ (Auth, Otp, Restaurant, Menu, Order, Payment, Ingredient, Staff, Notification, PreOrder, Health, Dashboard, CustomerRestaurant)
+│       ├── security/ (SecurityConfig, JwtTokenProvider, JwtAuthenticationFilter, RoleUtils, AuthContext)
+│       ├── tenant/ (TenantContext, TenantContextFilter)
+│       ├── entity/ (22 entities: User, Restaurant, MenuItem, MenuItemIngredient, Order, OrderItem, Payment,
 │       │            Ingredient, InventoryLedger, Notification, PriceRule, OtpRequest,
 │       │            RestaurantOperatingHour, PreOrderSettings, DishAvailability, DishSlotOverride,
-│       │            CustomerRestaurant, …)
-│       ├── repository/ (20+ Spring Data JPA interfaces)
-│       ├── service/ (all business logic)
+│       │            CustomerRestaurant, Refund, AuditTrail, FailedDelivery, OutboxEvent, OrderStatusHistory)
+│       ├── repository/ (22 Spring Data JPA interfaces)
+│       ├── service/ (16 services: Menu, PreOrderConfig, EmailTemplate, ChannelDelivery, PreOrderAvailability,
+│       │             Order, Otp, Notification, Ingredient, AuthRateLimit, Outbox, KafkaEventPublisher,
+│       │             Realtime, CustomerRestaurant, Restaurant, PaymentGateway, Audit)
 │       ├── scheduler/ (OutboxPoller, OtpCleanupScheduler, PreOrderReminderScheduler)
-│       └── consumer/ (Kafka consumers + DltRecorder)
+│       └── consumer/ (OrderNotification, OtpNotification, InventoryNotification, PaymentNotification, DltRecorder)
 │   └── src/main/resources/
 │       ├── application.yml             # Config (env-var driven)
 │       └── schema.sql                  # MySQL DDL (runs with ddl-auto, safe CREATE IF NOT EXISTS)
@@ -142,28 +148,41 @@ Required to start: **`JWT_SECRET`** (≥32 bytes, `openssl rand -hex 32`) and **
 | `APP_URL` | Public URL in email footers | `http://localhost:5173` |
 | `BUSINESS_TIMEZONE` | All pre-order cutoff/availability rules | `Asia/Kolkata` |
 
-### 2. Start Redis & Kafka (notifications + rate limiting)
+### 2. Start MySQL, Redis & Kafka (full local stack)
 
 ```bash
 docker compose up -d
-# Redis  → localhost:6379
-# Kafka  → localhost:29092
+# MySQL   → localhost:3306  (savorystay_db)
+# Redis   → localhost:6379
+# Kafka   → localhost:29092
 # Kafka UI → http://localhost:8081
 ```
 
-Verify Redis is running:
+Verify services are running:
 ```bash
 docker compose exec redis redis-cli ping
 # → PONG
+
+docker compose exec mysql mysqladmin ping -h localhost
+# → mysqld is alive
 ```
 
 | Service | Port | Purpose |
 |---------|------|---------|
+| MySQL | `3306` | Primary database (savorystay_db) — seeded with demo data on first boot |
 | Redis | `6379` | Login rate limiting, OTP throttling, lockout state |
 | Kafka | `29092` | Event backbone for email/SMS/SSE notification pipeline |
 | Kafka UI | `8081` | Web dashboard to inspect topics, consumers, lag |
 
-**Redis** is used for login rate limiting (5 failures → 15-min lockout) and OTP throttling. Without it, the app "fails open" (allows all requests) — which works but has no abuse protection. **Kafka** is required for the email/SMS notification pipeline — OTPs and order updates are dispatched through Kafka consumers.
+**MySQL** is the primary database — `DataSeeder` populates demo restaurants, menus, staff, and pre-order defaults on first boot. **Redis** is used for login rate limiting (5 failures → 15-min lockout) and OTP throttling. Without it, the app "fails open" (allows all requests) — which works but has no abuse protection. **Kafka** is required for the email/SMS notification pipeline — OTPs and order updates are dispatched through Kafka consumers.
+
+> **Health Check Endpoints:** Once the backend is running, you can verify all services:
+> ```bash
+> curl http://localhost:8080/api/v1/health          # → {"status":"UP"}
+> curl http://localhost:8080/api/v1/health/mail      # → SMTP connectivity check
+> curl http://localhost:8080/api/v1/health/redis     # → Redis PING + latency
+> curl http://localhost:8080/api/v1/health/kafka     # → Kafka broker + topic count
+> ```
 
 ### 3. Email Setup (Gmail SMTP)
 
@@ -194,25 +213,11 @@ MAIL_USERNAME=your-email@gmail.com
 MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
-#### Step 4: Configure IntelliJ (if running from IDE)
+#### Step 4: Running from IntelliJ
 
-IntelliJ does **NOT** automatically read `.env` files. You must add env vars to your Run Configuration:
+The app now **automatically loads `.env`** from the project root via `loadDotEnv()` in `SavoryStayApplication.main()`. As long as `springboot-backend/.env` exists with the correct values, no additional IntelliJ configuration is needed.
 
-1. **Run → Edit Configurations...**
-2. Select `SavoryStayApplication`
-3. Find **Environment variables** → click the folder icon
-4. Add these variables:
-
-| Name | Value |
-|------|-------|
-| `MAIL_HOST` | `smtp.gmail.com` |
-| `MAIL_PORT` | `587` |
-| `MAIL_USERNAME` | `your-email@gmail.com` |
-| `MAIL_PASSWORD` | `your-16-char-app-password` |
-| `REDIS_HOST` | `localhost` |
-| `REDIS_PORT` | `6379` |
-
-5. Click **Apply → OK**, then restart the backend
+If `.env` is missing or incomplete, email falls back to **demo mode** (OTP logged to console + returned in API response).
 
 #### How It Works
 
@@ -233,9 +238,9 @@ set -a; source .env; set +a          # load env vars
 
 **From IntelliJ:**
 
-1. Configure environment variables in Run Configuration (see §3 above)
+1. The app now loads `.env` automatically via `loadDotEnv()` in `main()` — no manual env var configuration needed
 2. Run `SavoryStayApplication` directly
-3. IntelliJ does **NOT** read `.env` files — without env vars, email falls back to demo mode
+3. If `.env` is not in the project root, email falls back to demo mode
 
 On first boot, `DataSeeder` creates a super admin, two demo restaurants, staff, menus (with recipes), stock, price rules and pre-order defaults. Seed data is skipped once any user exists, but pre-order defaults are seeded idempotently for the demo restaurants.
 
@@ -438,6 +443,7 @@ Base URL: `http://localhost:8080/api/v1`. Errors are uniform: `{ "success": fals
 | POST | `/orders` | ROLE_CUSTOMER only (server sets PENDING payment, CASH stays PENDING) |
 | POST | `/orders/{id}/payment` | owner or restaurant staff — **rejects CASH gateway** (CASH orders paid at counter) |
 | POST | `/orders/{id}/cancel` | order owner (NEW only) or staff (NEW/PREPARING/PACKED_READY) — `reason` optional |
+| POST | `/orders/{id}/mark-paid` | MANAGER+ — marks CASH order as paid at counter (auditable, idempotent) |
 | POST | `/orders/{id}/refund` | MANAGER+ — initiates refund (creates `Refund` record, sets `REFUND_PENDING` on order) |
 | POST | `/orders/{id}/items/{itemId}/notes` | staff — add/update kitchen notes ("Less spicy", "No onion") |
 | POST | `/orders/status` | staff (per-role transition rules, validated by `OrderStateMachine`) |
@@ -491,7 +497,14 @@ Base URL: `http://localhost:8080/api/v1`. Errors are uniform: `{ "success": fals
 | GET | `/notifications` | authenticated (own) |
 | POST | `/notifications/read-all` | authenticated |
 | GET | `/realtime/stream?token=…` | authenticated (SSE) |
-| GET | `/health` | public |
+
+### Health & Diagnostics
+| Method | Path | Access | Returns |
+|---|---|---|---|
+| GET | `/health` | public | `{"status":"UP","service":"savory-stay-backend"}` |
+| GET | `/health/mail` | public | SMTP connectivity check (connects + authenticates) |
+| GET | `/health/redis` | public | Redis PING/PONG with latency measurement |
+| GET | `/health/kafka` | public | Kafka broker reachability + topic count |
 
 ---
 
@@ -592,7 +605,7 @@ Test coverage highlights:
 | **P1.9 Cash Reconciliation** | `GET /dashboard/cash-reconciliation` — expected vs collected cash for a day. |
 | **P1.10 Payment Reconciliation** | `GET /dashboard/payment-reconciliation` — gross/refunds/net, breakdown by payment method. |
 | **P1.11 Exception Center** | `GET /dashboard/exceptions` — aggregated failures, delays, shortages, pending payments. |
-| **P1.13 Manager Dashboard** | `GET /dashboard/summary` — today's orders/revenue/status breakdown + tomorrow's brief. |
+| **P1.13 Manager Dashboard** | `GET /dashboard/summary` — today's orders/revenue/status breakdown + tomorrow's brief + AOV + cancellation % + refund %. |
 
 ---
 
@@ -600,10 +613,50 @@ Test coverage highlights:
 
 ## 12. Deployment
 
-- **Backend**: build `mvn clean package`, run the executable JAR with env vars set (`java -jar target/savory-stay-backend-1.0.0-SNAPSHOT.jar`). Point `MYSQL_*`/`KAFKA_*`/`MAIL_*`/`TWILIO_*`/`STRIPE_*`/`PAYPAL_*` at production services. Terminate TLS at a reverse proxy.
-- **Frontend**: `npm run build` → serve `dist/` (Vercel/Netlify/nginx) with `VITE_API_URL` set to the public backend URL.
-- **Infra**: MySQL (backups), Redis, Kafka (multi-node for production), SSL.
-- **Production checklist**: strong `JWT_SECRET`, HTTPS, restricted CORS, DB backups, monitoring, `ddl-auto: validate` after schema is stable, rotate secrets, enable logging aggregation.
+### Local Development
+
+- **Full stack**: `docker compose up -d` brings up MySQL, Redis, Kafka, and Kafka UI
+- **Backend**: `cd springboot-backend && set -a; source .env; set +a; ./mvnw spring-boot:run`
+- **Frontend**: `npm run dev` (Vite dev server on :5173)
+
+### Production (see `CLOUD_DEPLOYMENT.md` for detailed guide)
+
+**Option A — Managed Services (recommended):**
+
+| Service | Provider | Free Tier |
+|---------|----------|-----------|
+| Frontend | Vercel | 100 GB bandwidth/mo |
+| Backend | Render | 750 hours/mo |
+| MySQL | PlanetScale | 1 GB storage |
+| Redis | Upstash | 10K commands/day |
+| Kafka | Confluent Cloud | $400 credit (30 days) |
+| Email | Gmail SMTP | Unlimited |
+
+**Option B — Oracle Cloud VM (Docker):**
+
+- Deploy all services on a single free-tier VM using `docker-compose.prod.yml`
+- Nginx reverse proxy with SSL termination
+- See `CLOUD_DEPLOYMENT.md` for step-by-step instructions
+
+**Production Files:**
+
+| File | Purpose |
+|------|--------|
+| `docker-compose.prod.yml` | Production Docker Compose (backend + MySQL + Redis + Kafka) |
+| `Dockerfile.frontend` | Multi-stage React build + nginx |
+| `nginx.conf` | SPA routing + API proxy + SSE support |
+| `CLOUD_DEPLOYMENT.md` | Complete free-tier deployment guide |
+
+**Production Checklist:**
+
+- Strong `JWT_SECRET` (≥32 bytes, random)
+- HTTPS enabled (Let's Encrypt / Cloudflare)
+- Restricted CORS (only your domain)
+- MySQL automated backups
+- `ddl-auto: validate` after schema stabilizes
+- Rotate secrets regularly
+- Enable logging aggregation (Loki, CloudWatch, etc.)
+- Monitor health endpoints: `/api/v1/health`, `/health/mail`, `/health/redis`, `/health/kafka`
 
 ---
 
@@ -628,8 +681,11 @@ Test coverage highlights:
 | Notifications not delivered | Start Kafka (`docker compose up -d`); check Kafka UI `:8081` and `failed_delivery` table |
 | Pre-order rejected unexpectedly | Check hours (a day closing ≤14:00 blocks), cutoff time, dish availability, horizon |
 | Redis `Unable to connect` warnings | Start Redis: `docker compose up -d redis` — verify with `redis-cli ping` (should return `PONG`) |
-| Email `535 Authentication failed` | Gmail SMTP password is wrong/empty. Generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). If running from IntelliJ, add env vars to Run Configuration (see §3). Without env vars, email falls back to demo mode (OTP logged to console). |
-| Email not sending (demo mode) | The app is using demo mode because `MAIL_PASSWORD` is not set. Add Gmail SMTP credentials to `.env` or IntelliJ Run Configuration. |
+| Email `535 Authentication failed` | Gmail SMTP password is wrong/empty. Generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). Without env vars, email falls back to demo mode (OTP logged to console). |
+| Email not sending (demo mode) | The app is using demo mode because `MAIL_PASSWORD` is not set. Add Gmail SMTP credentials to `springboot-backend/.env`. The app auto-loads `.env` on startup. |
+| Health endpoints not responding | Ensure the backend is running. Check: `curl http://localhost:8080/api/v1/health` (should return `{"status":"UP"}`). For individual services: `/health/mail`, `/health/redis`, `/health/kafka`. |
+| Redis shows DOWN in health check | Start Redis: `docker compose up -d redis`. The app fails open without Redis (rate limiting disabled). |
+| Kafka shows DOWN in health check | Start Kafka: `docker compose up -d kafka`. Notifications won't deliver without Kafka. |
 | Frontend 401s | Token expired (24 h) — sign in again |
 | "You are not a member of this restaurant" | Customer must join the restaurant first via `POST /customer-restaurants/join` before selecting it |
 | Restaurant selector not appearing | Check the customer has memberships — the selector opens automatically after login for `ROLE_CUSTOMER` |
@@ -642,4 +698,4 @@ Test coverage highlights:
 
 ---
 
-**Status:** production-ready. Backend: **252 tests passing** (234 unit + 18 MySQL Testcontainers integration). Frontend: typecheck + production build clean. P0 correctness (state machine, cancellation, refund, audit, idempotency) and P1 operations (kitchen priority, sold-out 86, tomorrow brief, shopping list, reconciliation, exception center, manager dashboard) fully implemented. Frontend dashboard wired to all backend endpoints.
+**Status:** production-ready. Backend: **263 tests passing** (245 unit + 18 MySQL Testcontainers integration). Frontend: typecheck + production build clean. P0 correctness (state machine, cancellation, refund, audit, idempotency, tenant isolation, cash mark-paid) and P1 operations (kitchen priority, sold-out 86, tomorrow brief, shopping list, reconciliation, exception center, manager dashboard with AOV/cancellation%/refund%) fully implemented. Frontend dashboard wired to all backend endpoints. Order Again feature added for customer reorder flow.

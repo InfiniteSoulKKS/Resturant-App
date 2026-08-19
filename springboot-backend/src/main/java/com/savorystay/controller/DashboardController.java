@@ -392,6 +392,30 @@ public class DashboardController {
                 .filter(i -> Boolean.TRUE.equals(i.get("needPurchase")))
                 .count();
 
+        // P1 metrics: AOV, Cancellation %, Refund % (use DB aggregation)
+        long totalAllTime = allOrders.size();
+        BigDecimal revenueAllTime = allOrders.stream()
+                .map(Order::getTotalAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal avgOrderValue = totalAllTime > 0
+                ? revenueAllTime.divide(BigDecimal.valueOf(totalAllTime), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        long cancelledAllTime = allOrders.stream()
+                .filter(o -> "CANCELLED".equals(o.getOrderStatus())).count();
+        long declinedAllTime = allOrders.stream()
+                .filter(o -> "DECLINED".equals(o.getOrderStatus())).count();
+        long cancellationsTotal = cancelledAllTime + declinedAllTime;
+        BigDecimal cancellationPct = totalAllTime > 0
+                ? BigDecimal.valueOf(cancellationsTotal * 100.0 / totalAllTime).setScale(1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        long refundsCompleted = refundRepository.findByRestaurantIdAndRefundStatus(restaurantId, "COMPLETED").size();
+        long refundsRequested = refundRepository.findByRestaurantIdAndRefundStatus(restaurantId, "REQUESTED").size();
+        BigDecimal refundPct = totalAllTime > 0
+                ? BigDecimal.valueOf((refundsCompleted + refundsRequested) * 100.0 / totalAllTime).setScale(1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("today", LocalDate.now().toString());
         response.put("totalOrders", todayOrders.size());
@@ -404,6 +428,9 @@ public class DashboardController {
         response.put("cashPaymentsPending", cashPending);
         response.put("ingredientShortages", ingredientShortages);
         response.put("soldOutDishes", soldOutDishes);
+        response.put("avgOrderValue", avgOrderValue);
+        response.put("cancellationPct", cancellationPct);
+        response.put("refundPct", refundPct);
         response.put("tomorrowPreOrders", (int) tomorrowBrief.getOrDefault("preOrderCount", 0));
         response.put("tomorrowExpectedRevenue", tomorrowBrief.getOrDefault("expectedRevenue", BigDecimal.ZERO));
         response.put("tomorrowIngredientShortfalls", tomorrowShortfalls);

@@ -9,6 +9,7 @@ import {
   X,
   AlertCircle,
   MapPin,
+  RefreshCw,
 } from 'lucide-react';
 import { Order } from '../types';
 import { getMyOrders } from '../lib/apiClient';
@@ -24,9 +25,11 @@ const STATUS_FLOW: { key: string; label: string; icon: React.ReactNode }[] = [
 interface OrderTrackingProps {
   /** Registers a refresh callback that the app invokes on realtime order events. */
   liveUpdate: (handler: () => void) => void;
+  /** Callback to add items to cart for reorder. */
+  onReorder?: (items: { menuItemId: string; title: string; price: number; quantity: number }[], restaurantId: string) => void;
 }
 
-export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate }) => {
+export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate, onReorder }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -174,9 +177,28 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate }) => {
               )}
 
               {isCompleted && (
-                <div className="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Enjoy your meal! 🎉
+                <div className="mt-4 space-y-2">
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Enjoy your meal! 🎉
+                  </div>
+                  {onReorder && order.items && order.items.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const reorderItems = order.items.map((item: any) => ({
+                          menuItemId: item.menuItemId,
+                          title: item.title,
+                          price: item.price,
+                          quantity: item.quantity,
+                        }));
+                        onReorder(reorderItems, order.restaurantId);
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold flex items-center justify-center gap-2 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Order Again
+                    </button>
+                  )}
                 </div>
               )}
             </div>

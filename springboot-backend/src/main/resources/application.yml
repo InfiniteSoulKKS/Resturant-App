@@ -39,6 +39,7 @@ spring:
     # Gmail SMTP (smtp.gmail.com:587 with STARTTLS).
     # Credentials come from the environment (MAIL_USERNAME = Gmail address,
     # MAIL_PASSWORD = 16-char App Password from myaccount.google.com/apppasswords).
+    # Without MAIL_PASSWORD, email falls back to demo mode (OTP logged to console).
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:kumarkartiksahu3@gmail.com}
