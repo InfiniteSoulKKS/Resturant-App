@@ -45,7 +45,8 @@ public class Restaurant {
     @Column(length = 100)
     private String email;
 
-    @Column(name = "logo_url", length = 500)
+    @Lob
+    @Column(name = "logo_url", columnDefinition = "TEXT")
     private String logoUrl;
 
     @Column(length = 20)

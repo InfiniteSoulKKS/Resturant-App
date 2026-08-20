@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS restaurants (
     cuisine VARCHAR(60),
     phone VARCHAR(20),
     email VARCHAR(100),
-    logo_url VARCHAR(500),
+    logo_url TEXT,
     status VARCHAR(20) DEFAULT 'ACTIVE',
     currency VARCHAR(10) DEFAULT 'INR',
     owner_id VARCHAR(64),
