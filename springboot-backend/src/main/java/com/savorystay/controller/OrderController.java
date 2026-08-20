@@ -34,7 +34,7 @@ public class OrderController {
     private final AuditService auditService;
 
     @PostMapping
-    @PreAuthorize("hasRole('CUSTOMER')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> placeOrder(@Valid @RequestBody PlaceOrderRequest req) {
         try {
             String userId = TenantContext.getUserId();

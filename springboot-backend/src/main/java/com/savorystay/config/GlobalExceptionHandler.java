@@ -110,7 +110,12 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException e) {
-        return error(HttpStatus.FORBIDDEN, "Forbidden");
+        String msg = e.getMessage();
+        if (msg == null || msg.isBlank() || msg.contains("Denied")) {
+            msg = "You don't have permission to perform this action. "
+                + "Please check your account role and try again.";
+        }
+        return error(HttpStatus.FORBIDDEN, msg);
     }
 
     /** Unique-constraint / FK violations (duplicate username, email, etc.). */
