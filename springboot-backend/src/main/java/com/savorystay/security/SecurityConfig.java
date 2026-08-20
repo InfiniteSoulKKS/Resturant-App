@@ -72,9 +72,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/v1/ingredients/**")
                     .hasAnyRole("CHEF", "MANAGER", "ADMIN", "SUPER_ADMIN")
                 .requestMatchers("/api/v1/ingredients/**").hasAnyRole("MANAGER", "ADMIN", "SUPER_ADMIN")
-                // Order placement is CUSTOMER-only — staff manage the kitchen, they
-                // do not place customer orders through the checkout flow.
-                .requestMatchers(HttpMethod.POST, "/api/v1/orders").hasRole("CUSTOMER")
+                // Order placement: any authenticated user can reach the endpoint;
+                // the controller returns a clear error for non-CUSTOMER roles.
+                .requestMatchers(HttpMethod.POST, "/api/v1/orders").authenticated()
                 // Order status: all staff may touch it, but the per-transition rules
                 // (chef cooks/packs; manager completes/hands over) are enforced in
                 // OrderService.updateStatus using the caller's role.
