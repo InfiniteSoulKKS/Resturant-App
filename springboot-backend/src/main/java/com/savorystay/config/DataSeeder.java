@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -41,6 +42,10 @@ public class DataSeeder implements CommandLineRunner {
     private final CustomerRestaurantRepository customerRestaurantRepository;
     private final NotificationRepository notificationRepository;
     private final RestaurantSettingsRepository restaurantSettingsRepository;
+    private final PlateCapacityRepository plateCapacityRepository;
+    private final TableSlotCapacityRepository tableSlotCapacityRepository;
+    private final RefundRepository refundRepository;
+    private final AuditTrailRepository auditTrailRepository;
 
     @Override
     public void run(String... args) {
@@ -128,6 +133,13 @@ public class DataSeeder implements CommandLineRunner {
 
         // ============ NOTIFICATIONS ============
         seedNotifications();
+
+        // ============ CAPACITY DATA (P0.8/P0.9) ============
+        seedCapacityData("REST_DEMO_1");
+        seedCapacityData("REST_DEMO_2");
+
+        // ============ SAMPLE REFUNDS + AUDIT ============
+        seedRefundsAndAudit("REST_DEMO_1");
 
         log.info("DataSeeder: done. Login: superadmin / SuperAdmin@123");
         log.info("DataSeeder: 8 customers, 2 restaurants, 50 menu items, 60+ orders seeded.");
@@ -805,5 +817,129 @@ public class DataSeeder implements CommandLineRunner {
                 .title("Stock Alert").message("Saffron is below reorder level. Current: 40g, Reorder at: 100g.").type("SYSTEM").channel("APP").read(false).createdAt(LocalDateTime.now().minusMinutes(15)).build());
         notificationRepository.save(Notification.builder().userId("USR_R1_ADMIN").restaurantId("REST_DEMO_1")
                 .title("Stock Alert").message("Cardamom is below reorder level. Current: 60g, Reorder at: 150g.").type("SYSTEM").channel("APP").read(false).createdAt(LocalDateTime.now().minusMinutes(15)).build());
+    }
+
+    // ─── CAPACITY DATA (P0.8 / P0.9) ─────────────────────────────────
+
+    /**
+     * Seed plate capacity and table slot capacity records for demo.
+     * Creates capacity for today so the demo works immediately.
+     */
+    private void seedCapacityData(String restaurantId) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+
+        // Seed plate capacity for dishes with dailyPlateCount
+        List<MenuItem> menuItems = menuItemRepository.findByRestaurantIdOrderByCreatedAtDesc(restaurantId);
+        for (MenuItem item : menuItems) {
+            if (item.getDailyPlateCount() != null) {
+                // Set reserved count to ~60% of capacity for a realistic demo
+                int reserved = (int) (item.getDailyPlateCount() * 0.6);
+                plateCapacityRepository.save(PlateCapacity.builder()
+                        .menuItemId(item.getId())
+                        .restaurantId(restaurantId)
+                        .businessDate(today)
+                        .capacity(item.getDailyPlateCount())
+                        .reservedCount(reserved)
+                        .version(0L)
+                        .build());
+            }
+        }
+
+        // Seed table slot capacity for common time slots
+        String[] timeSlots = {"12:00 PM", "12:30 PM", "1:00 PM", "7:00 PM", "7:30 PM", "8:00 PM", "8:30 PM", "9:00 PM"};
+        Map<String, Integer> tableConfig = restaurantId.equals("REST_DEMO_1")
+                ? Map.of("2-Seater", 6, "4-Seater", 5, "6-Seater", 3)
+                : Map.of("2-Seater", 4, "4-Seater", 3, "6-Seater", 2);
+
+        for (String slot : timeSlots) {
+            for (Map.Entry<String, Integer> entry : tableConfig.entrySet()) {
+                // Reserve ~40-70% of tables for a realistic demo
+                int reserved = (int) (entry.getValue() * (0.4 + Math.random() * 0.3));
+                tableSlotCapacityRepository.save(TableSlotCapacity.builder()
+                        .restaurantId(restaurantId)
+                        .businessDate(today)
+                        .timeSlot(slot)
+                        .tableType(entry.getKey())
+                        .totalCapacity(entry.getValue())
+                        .reservedCount(Math.min(reserved, entry.getValue()))
+                        .version(0L)
+                        .build());
+            }
+        }
+
+        log.info("DataSeeder: capacity data seeded for {} ({} plate items, {} time slots)",
+                restaurantId, menuItems.size(), timeSlots.length);
+    }
+
+    /**
+     * Seed sample refund and audit records for demo dashboards.
+     */
+    private void seedRefundsAndAudit(String restaurantId) {
+        // Sample refund on a completed order
+        List<Order> completedOrders = orderRepository.findByRestaurantIdOrderByCreatedAtDesc(restaurantId)
+                .stream()
+                .filter(o -> "COMPLETED".equals(o.getOrderStatus()) && "PAID".equals(o.getPaymentStatus()))
+                .limit(1)
+                .toList();
+
+        if (!completedOrders.isEmpty()) {
+            Order order = completedOrders.get(0);
+            refundRepository.save(Refund.builder()
+                    .orderId(order.getId())
+                    .paymentId("TXN_SEEDED")
+                    .amount(order.getTotalAmount().divide(BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP))
+                    .currency("INR")
+                    .refundStatus("COMPLETED")
+                    .reason("Item quality issue")
+                    .initiatedBy("USR_R1_MGR")
+                    .restaurantId(restaurantId)
+                    .gateway(order.getPaymentMethod() != null ? order.getPaymentMethod() : "MOCK")
+                    .providerRefundId("REF_SEEDED_001")
+                    .requestedAt(LocalDateTime.now().minusDays(1))
+                    .completedAt(LocalDateTime.now().minusHours(12))
+                    .build());
+        }
+
+        // Sample audit entries
+        auditTrailRepository.save(AuditTrail.builder()
+                .restaurantId(restaurantId)
+                .actorUserId("USR_R1_MGR")
+                .actorRole("ROLE_MANAGER")
+                .action("MENU_ITEM_UPDATED")
+                .entityType("MENU_ITEM")
+                .entityId(restaurantId + "_MI_1")
+                .oldValue("{\"price\":400}")
+                .newValue("{\"price\":420}")
+                .reason("Seasonal price adjustment")
+                .recordedAt(LocalDateTime.now().minusDays(2))
+                .build());
+
+        auditTrailRepository.save(AuditTrail.builder()
+                .restaurantId(restaurantId)
+                .actorUserId("USR_R1_MGR")
+                .actorRole("ROLE_MANAGER")
+                .action("INVENTORY_ADJUSTED")
+                .entityType("INGREDIENT")
+                .entityId(restaurantId + "_ING_1")
+                .oldValue("{\"stockQuantity\":18000}")
+                .newValue("{\"stockQuantity\":20000}")
+                .reason("Weekly restock delivery")
+                .recordedAt(LocalDateTime.now().minusDays(1))
+                .build());
+
+        auditTrailRepository.save(AuditTrail.builder()
+                .restaurantId(restaurantId)
+                .actorUserId("USR_SUPERADMIN")
+                .actorRole("ROLE_SUPER_ADMIN")
+                .action("RESTAURANT_SETTINGS_UPDATED")
+                .entityType("RESTAURANT_SETTINGS")
+                .entityId(restaurantId)
+                .oldValue("{\"totalTables\":12}")
+                .newValue("{\"totalTables\":14}")
+                .reason("Added extra tables for weekend capacity")
+                .recordedAt(LocalDateTime.now().minusHours(6))
+                .build());
+
+        log.info("DataSeeder: sample refund + audit seeded for {}", restaurantId);
     }
 }
