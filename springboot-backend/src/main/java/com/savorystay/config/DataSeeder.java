@@ -166,7 +166,10 @@ public class DataSeeder implements CommandLineRunner {
             preOrderSettingsRepository.save(PreOrderSettings.builder()
                     .restaurantId(restaurantId).cutoffTime(java.time.LocalTime.of(9, 0)).advanceDays(7).build());
         }
-        if (dishAvailabilityRepository.findByRestaurantId(restaurantId).isEmpty()) {
+        // Always refresh dish availability — delete old entries and re-insert
+        dishAvailabilityRepository.findByRestaurantId(restaurantId)
+                .forEach(dishAvailabilityRepository::delete);
+        {
             String p = restaurantId;
             List<DishAvailability> avail = new ArrayList<>();
             // MI_1 Butter Chicken — Mon, Wed, Fri
