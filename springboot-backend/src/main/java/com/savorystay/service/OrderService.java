@@ -777,14 +777,15 @@ public class OrderService {
             // Extract date prefix from timeSlot (e.g. "12:00 PM" → today's date)
             String datePrefix = LocalDate.now().toString();
 
-            // Count current DINE_IN bookings per guest count
-            List<Object[]> booked = orderRepository.countDineInByGuestsOnDate(restaurantId, datePrefix + " " + timeSlot);
-            Map<Integer, Long> bookedByGuests = new HashMap<>();
-            for (Object[] row : booked) {
-                Integer guests = ((Number) row[0]).intValue();
-                Long count = ((Number) row[1]).longValue();
-                bookedByGuests.put(guests, count);
-            }
+        // Count current DINE_IN bookings per guest count (including overlapping 1-hour window)
+        List<String> timeSlotPrefixes = getTimeSlotPrefixesWithinOneHour(datePrefix, timeSlot);
+        List<Object[]> booked = orderRepository.countDineInByTimeSlots(restaurantId, timeSlotPrefixes);
+        Map<Integer, Long> bookedByGuests = new HashMap<>();
+        for (Object[] row : booked) {
+            Integer guests = ((Number) row[0]).intValue();
+            Long count = ((Number) row[1]).longValue();
+            bookedByGuests.put(guests, count);
+        }
 
             Map<String, Object> event = new HashMap<>();
             event.put("restaurantId", restaurantId);
@@ -830,5 +831,25 @@ public class OrderService {
         } catch (Exception e) {
             log.warn("[SSE] Failed to broadcast plate count for {}: {}", menuItemId, e.getMessage());
         }
+    }
+
+    /**
+     * Generate time slot prefixes for a 1-hour window around the requested slot.
+     * Tables are blocked for 1 hour after booking to prevent double-booking.
+     */
+    private List<String> getTimeSlotPrefixesWithinOneHour(String date, String timeSlot) {
+        List<String> prefixes = new ArrayList<>();
+        try {
+            java.time.format.DateTimeFormatter fmt12 = java.time.format.DateTimeFormatter.ofPattern("h:mm a");
+            java.time.LocalTime requestedTime = java.time.LocalTime.parse(timeSlot.trim(), fmt12);
+            prefixes.add(date + " " + timeSlot.trim());
+            for (int i = 1; i <= 2; i++) {
+                java.time.LocalTime next = requestedTime.plusMinutes(i * 30L);
+                prefixes.add(date + " " + next.format(fmt12));
+            }
+        } catch (Exception e) {
+            prefixes.add(date + " " + timeSlot.trim());
+        }
+        return prefixes;
     }
 }

@@ -89,9 +89,10 @@ public class RestaurantController {
         // Parse table config
         List<Map<String, Object>> tableTypes = RestaurantSettingsResponse.parseTableConfig(settings.getTableConfig());
 
-        // Count existing DINE_IN orders for this date+slot
-        String datePrefix = date + " " + timeSlot;
-        List<Object[]> booked = orderRepository.countDineInByGuestsOnDate(id, datePrefix);
+        // Count existing DINE_IN orders for this date+slot and overlapping slots
+        // Tables are blocked for 1 hour after booking to prevent double-booking
+        List<String> timeSlotPrefixes = getTimeSlotPrefixesWithinOneHour(date, timeSlot);
+        List<Object[]> booked = orderRepository.countDineInByTimeSlots(id, timeSlotPrefixes);
         Map<Integer, Long> bookedByGuests = new HashMap<>();
         for (Object[] row : booked) {
             Integer guests = ((Number) row[0]).intValue();
@@ -245,5 +246,33 @@ public class RestaurantController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
         }
+    }
+
+    /**
+     * Generate time slot prefixes for a 1-hour window around the requested slot.
+     * For example, if the requested slot is "12:00 PM" and slots are every 30 min,
+     * returns ["2026-08-22 12:00 PM", "2026-08-22 12:30 PM"] (both blocked for 1 hour).
+     * This prevents double-booking of the same table.
+     */
+    private List<String> getTimeSlotPrefixesWithinOneHour(String date, String timeSlot) {
+        List<String> prefixes = new ArrayList<>();
+        try {
+            // Parse time slot: "12:00 PM" → LocalTime
+            DateTimeFormatter fmt12 = DateTimeFormatter.ofPattern("h:mm a");
+            LocalTime requestedTime = LocalTime.parse(timeSlot.trim(), fmt12);
+            String datePrefix = date + " " + timeSlot.trim();
+            prefixes.add(datePrefix);
+
+            // Add next slots within 1 hour (assuming 30-min slot intervals)
+            for (int i = 1; i <= 2; i++) {
+                LocalTime next = requestedTime.plusMinutes(i * 30L);
+                String nextSlot = next.format(fmt12);
+                prefixes.add(date + " " + nextSlot);
+            }
+        } catch (Exception e) {
+            // Fallback: just use the exact slot
+            prefixes.add(date + " " + timeSlot.trim());
+        }
+        return prefixes;
     }
 }
