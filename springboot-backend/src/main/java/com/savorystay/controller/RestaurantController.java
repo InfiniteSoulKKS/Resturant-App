@@ -262,19 +262,8 @@ public class RestaurantController {
      */
     private List<String> getTimeSlotPrefixesWithinOneHour(String date, String timeSlot) {
         List<String> slots = new ArrayList<>();
-        String cleanSlot = timeSlot.trim();
-        // Strip date prefix if present (e.g. "2026-08-22 12:00 PM" → "12:00 PM")
-        int pmIdx = cleanSlot.indexOf("PM");
-        int amIdx = cleanSlot.indexOf("AM");
-        int idx = Math.max(pmIdx, amIdx);
-        if (idx > 0) {
-            // Find the space before "AM"/"PM" and the space before that to get "12:00 PM"
-            String before = cleanSlot.substring(0, idx + 2).trim();
-            int lastSpace = before.lastIndexOf(' ');
-            if (lastSpace > 0) {
-                cleanSlot = before.substring(lastSpace + 1);
-            }
-        }
+        // Extract clean time slot using regex (handles date prefix)
+        String cleanSlot = extractTimeSlot(timeSlot.trim());
         slots.add(cleanSlot);
         try {
             DateTimeFormatter fmt12 = DateTimeFormatter.ofPattern("h:mm a");
@@ -287,6 +276,16 @@ public class RestaurantController {
             // fallback: just the exact slot
         }
         return slots;
+    }
+
+    /**
+     * Extract a clean time slot from a string that may include a date prefix.
+     * Uses regex to reliably find h:mm AM/PM pattern.
+     */
+    private String extractTimeSlot(String input) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm))").matcher(input);
+        if (m.find()) return m.group(1).toUpperCase();
+        return input.trim();
     }
 
     /**
