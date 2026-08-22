@@ -601,6 +601,16 @@ export async function confirmOrderPayment(
   return parseOrder(data.order);
 }
 
+/** Manager/cashier marks a CASH order as paid at the counter. */
+export async function markCashPaid(orderId: string, restaurantId?: string): Promise<Order> {
+  const q = restaurantId ? `?restaurantId=${encodeURIComponent(restaurantId)}` : '';
+  const res = await authenticatedFetch(`/api/v1/orders/${orderId}/mark-paid${q}`, {
+    method: 'POST',
+  });
+  const data = await readJson<{ success: boolean; order: any }>(res);
+  return parseOrder(data.order);
+}
+
 // ==================== INGREDIENTS ====================
 
 export async function listIngredients(restaurantId?: string): Promise<Ingredient[]> {

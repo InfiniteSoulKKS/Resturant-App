@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Order } from '../types';
-import { updateOrderStatus, getKitchenProduction, getDelayedOrders, toggleSoldOut, type KitchenProductionItem, type DelayedOrder } from '../lib/apiClient';
+import { updateOrderStatus, getKitchenProduction, getDelayedOrders, toggleSoldOut, markCashPaid, type KitchenProductionItem, type DelayedOrder } from '../lib/apiClient';
 import { canManage, hasRole, ROLES } from '../lib/roles';
 import {
   Bell,
@@ -44,6 +44,9 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
   const [delayedOrders, setDelayedOrders] = useState<DelayedOrder[]>([]);
   const [declineModalOrder, setDeclineModalOrder] = useState<Order | null>(null);
   const [declineReason, setDeclineReason] = useState('');
+  const [collectPaymentOrder, setCollectPaymentOrder] = useState<Order | null>(null);
+  const [collectingPayment, setCollectingPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'CARD'>('CASH');
 
   // Load kitchen production and delayed orders
   React.useEffect(() => {
@@ -315,12 +318,17 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                     <div>
                       <h3 className="text-base font-bold font-serif text-stone-100 flex items-center gap-2">
                         <span>Order {ord.orderNumber}</span>
-                        {ord.paymentStatus === 'PAID' && (
+                        {ord.paymentStatus === 'PAID' ? (
                           <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono font-bold flex items-center gap-1">
                             <ShieldCheck className="w-3 h-3" />
                             PAID ({ord.paymentMethod})
                           </span>
-                        )}
+                        ) : ord.paymentMethod === 'CASH' ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 font-mono font-bold flex items-center gap-1 animate-pulse">
+                            <IndianRupee className="w-3 h-3" />
+                            PAY AT COUNTER — ₹{ord.totalAmount}
+                          </span>
+                        ) : null}
                       </h3>
                       <p className="text-xs text-stone-400 mt-1 flex items-center gap-3">
                         <span className="flex items-center gap-1">
@@ -408,13 +416,29 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                     )}
 
                     {isPackedReady && isManagerOrAbove && (
-                      <button
-                        onClick={() => handleUpdateStatus(ord, 'COMPLETED')}
-                        className="px-4 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-bold border border-stone-700 transition-colors cursor-pointer flex items-center gap-1.5"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Handover to Customer</span>
-                      </button>
+                      <>
+                        {/* CASH orders that are still PENDING need payment collected first */}
+                        {ord.paymentMethod === 'CASH' && ord.paymentStatus !== 'PAID' ? (
+                          <button
+                            onClick={() => {
+                              setCollectPaymentOrder(ord);
+                              setPaymentMethod('CASH');
+                            }}
+                            className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-xl text-xs font-bold shadow-md shadow-amber-500/20 transition-all cursor-pointer flex items-center gap-1.5 animate-pulse"
+                          >
+                            <IndianRupee className="w-3.5 h-3.5" />
+                            <span>Collect Payment — ₹{ord.totalAmount}</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleUpdateStatus(ord, 'COMPLETED')}
+                            className="px-4 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-xl text-xs font-bold border border-stone-700 transition-colors cursor-pointer flex items-center gap-1.5"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{ord.paymentStatus === 'PAID' ? 'Handover to Customer' : 'Handover to Customer'}</span>
+                          </button>
+                        )}
+                      </>
                     )}
 
                     {isPackedReady && isChefOnly && (
@@ -548,6 +572,80 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
           </div>
         </div>
       </div>
+      {/* Collect Payment Modal — for CASH/counter orders */}
+      {collectPaymentOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-stone-900 rounded-2xl p-6 w-full max-w-md mx-4 border border-stone-800 shadow-2xl">
+            <h3 className="text-lg font-bold text-stone-100 mb-1">
+              Collect Payment
+            </h3>
+            <p className="text-xs text-stone-400 mb-4">
+              Order <span className="font-bold text-amber-400">{collectPaymentOrder.orderNumber}</span> —
+              <span className="font-mono font-bold text-amber-400 ml-1">₹{collectPaymentOrder.totalAmount}</span>
+            </p>
+
+            {/* Payment method selector */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {(['CASH', 'UPI', 'CARD'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setPaymentMethod(m)}
+                  className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    paymentMethod === m
+                      ? 'bg-amber-500/20 border-amber-500/60 text-amber-400'
+                      : 'bg-stone-950 border-stone-800 text-stone-400 hover:text-stone-200'
+                  }`}
+                >
+                  {m === 'CASH' ? '💵 Cash' : m === 'UPI' ? '📱 UPI' : '💳 Card'}
+                </button>
+              ))}
+            </div>
+
+            <div className="bg-stone-950 p-3 rounded-xl border border-stone-800 mb-4">
+              <p className="text-[10px] text-stone-500 uppercase font-mono mb-1">Amount to collect</p>
+              <p className="text-2xl font-mono font-bold text-amber-400">₹{collectPaymentOrder.totalAmount}</p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setCollectPaymentOrder(null);
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-stone-700 text-stone-300 text-xs font-semibold hover:bg-stone-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={collectingPayment}
+                onClick={async () => {
+                  if (!collectPaymentOrder) return;
+                  setCollectingPayment(true);
+                  try {
+                    await markCashPaid(collectPaymentOrder.id, collectPaymentOrder.restaurantId || undefined);
+                    setNotificationStatusMsg(
+                      `💰 Payment recorded for ${collectPaymentOrder.orderNumber} via ${paymentMethod}. Order ready for handover!`
+                    );
+                    setTimeout(() => setNotificationStatusMsg(null), 6000);
+                    refreshOrders?.();
+                  } catch (e) {
+                    console.error('Failed to record payment', e);
+                    setNotificationStatusMsg('❌ Failed to record payment. Please try again.');
+                    setTimeout(() => setNotificationStatusMsg(null), 6000);
+                  } finally {
+                    setCollectingPayment(false);
+                    setCollectPaymentOrder(null);
+                  }
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {collectingPayment ? 'Recording...' : 'Confirm Payment Received'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Decline Reason Modal */}
       {declineModalOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
