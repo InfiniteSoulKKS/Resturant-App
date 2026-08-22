@@ -64,6 +64,14 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
   React.useEffect(() => {
     if (isOpen) setPaymentError(null);
   }, [isOpen]);
+
+  // Auto-dismiss payment error after 5 seconds
+  React.useEffect(() => {
+    if (paymentError) {
+      const timer = setTimeout(() => setPaymentError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [paymentError]);
   const [orderType, setOrderType] = useState<'PICKUP' | 'DINE_IN' | 'PRE_ORDER'>('PICKUP');
   const [pickupTime, setPickupTime] = useState('30 Mins (Ready by 07:45 PM)');
   const [dineInTimeSlot, setDineInTimeSlot] = useState('12:00 PM');
@@ -851,27 +859,55 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
               {paymentError && (
                 <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{paymentError}</span>
+                  <span className="flex-1">{paymentError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentError(null)}
+                    className="text-rose-400 hover:text-rose-300 p-1 -m-1 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+                    title="Dismiss error"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               )}
 
               {/* Submit Action */}
-              <button
-                type="submit"
-                disabled={!!(availabilityResult && availabilityResult.unavailableItems.length > 0)}
-                className={`w-full py-3 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${
-                  availabilityResult && availabilityResult.unavailableItems.length > 0
-                    ? 'bg-stone-700 text-stone-400 cursor-not-allowed shadow-none'
-                    : 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-amber-500/20 cursor-pointer'
-                }`}
-              >
-                <Lock className="w-4 h-4" />
-                <span>
-                  {availabilityResult && availabilityResult.unavailableItems.length > 0
-                    ? 'Remove unavailable items to proceed'
-                    : `Confirm Order & Pay ₹${totalAmount}`}
-                </span>
-              </button>
+              {paymentError ? (
+                <div className="space-y-2">
+                  <button
+                    type="submit"
+                    className="w-full py-3 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-amber-500/20 cursor-pointer"
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>Retry Order</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="w-full py-2.5 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                    <span>Go Back</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!!(availabilityResult && availabilityResult.unavailableItems.length > 0)}
+                  className={`w-full py-3 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${
+                    availabilityResult && availabilityResult.unavailableItems.length > 0
+                      ? 'bg-stone-700 text-stone-400 cursor-not-allowed shadow-none'
+                      : 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-amber-500/20 cursor-pointer'
+                  }`}
+                >
+                  <Lock className="w-4 h-4" />
+                  <span>
+                    {availabilityResult && availabilityResult.unavailableItems.length > 0
+                      ? 'Remove unavailable items to proceed'
+                      : `Confirm Order & Pay ₹${totalAmount}`}
+                  </span>
+                </button>
+              )}
             </form>
           )}
         </div>

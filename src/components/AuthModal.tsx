@@ -138,6 +138,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }, [isOpen]);
 
+  // Auto-dismiss error message after 5 seconds
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
+
   if (!isOpen) return null;
 
   // ============ LOGIN OTP HANDLERS ============
@@ -448,7 +456,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {errorMessage && (
           <div className="mt-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMessage}</span>
+            <span className="flex-1">{errorMessage}</span>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              className="text-rose-400 hover:text-rose-300 p-1 -m-1 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Store, MapPin, ChevronRight, LogOut, RefreshCw } from 'lucide-react';
+import { Store, MapPin, ChevronRight, LogOut, RefreshCw, X } from 'lucide-react';
 import { getMyRestaurants, joinRestaurant, selectRestaurant, listRestaurants } from '../lib/apiClient';
 import type { CustomerRestaurantMembership } from '../lib/apiClient';
 import type { Restaurant } from '../types';
@@ -104,8 +104,16 @@ export const RestaurantSelector: React.FC<RestaurantSelectorProps> = ({
 
         {/* Error */}
         {error && (
-          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400">
-            {error}
+          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-center gap-2">
+            <span className="flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-rose-400 hover:text-rose-300 p-1 -m-1 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
