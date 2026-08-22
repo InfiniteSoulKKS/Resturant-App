@@ -272,7 +272,9 @@ public class DataSeeder implements CommandLineRunner {
     }
 
     private Ingredient ing(String id, String restId, String name, String unit, String stock, String reorder) {
-        return Ingredient.builder().id(id).restaurantId(restId).name(name).unit(unit)
+        return Ingredient.builder().id(id).restaurantId(restId).name(name)
+                .normalizedName(name.toLowerCase().trim())
+                .unit(unit)
                 .stockQuantity(new BigDecimal(stock)).reorderLevel(new BigDecimal(reorder)).build();
     }
 
