@@ -145,12 +145,13 @@ public class ChannelDeliveryService {
         try {
             MimeMessage mime = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mime, true, "UTF-8");
-            helper.setFrom(fromEmail);
+            helper.setFrom(appName + " <" + fromEmail + ">");
             helper.setTo(email);
+            helper.setReplyTo(fromEmail);
             helper.setSubject(subject);
             helper.setText(htmlBody, true);
             mailSender.send(mime);
-            log.info("HTML email sent to {}", email);
+            log.info("HTML email sent to {} (from: {} <{}>)", email, appName, fromEmail);
             return true;
         } catch (Exception e) {
             log.error("HTML email delivery failed to {}: {}", email, e.getMessage(), e);

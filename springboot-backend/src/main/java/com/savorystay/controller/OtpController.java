@@ -127,6 +127,12 @@ public class OtpController {
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
                 response.put("message", "OTP sent to email (DEMO MODE - no SMTP credentials configured). Code: " + otpRequest.getOtpCode());
+            } else {
+                // Always include OTP code as fallback — real email is sent in
+                // background via Kafka, but spam filters may delay/block it.
+                response.put("demoOtp", otpRequest.getOtpCode());
+                response.put("demoMode", true);
+                response.put("message", "OTP sent to email. If not received, use code: " + otpRequest.getOtpCode());
             }
 
             return ResponseEntity.ok(response);
@@ -183,7 +189,11 @@ public class OtpController {
             if (otpService.isDemoDelivery(OtpRequest.OtpChannel.SMS)) {
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
-                response.put("message", "OTP sent via SMS (DEMO MODE - no Twilio credentials configured). Code: " + otpRequest.getOtpCode());
+                response.put("message", "OTP sent via SMS (DEMO MODE - no Twilio configured). Code: " + otpRequest.getOtpCode());
+            } else {
+                response.put("demoOtp", otpRequest.getOtpCode());
+                response.put("demoMode", true);
+                response.put("message", "OTP sent via SMS. If not received, use code: " + otpRequest.getOtpCode());
             }
 
             return ResponseEntity.ok(response);
@@ -240,7 +250,11 @@ public class OtpController {
             if (otpService.isDemoDelivery(OtpRequest.OtpChannel.WHATSAPP)) {
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
-                response.put("message", "OTP sent via WhatsApp (DEMO MODE - no Twilio credentials configured). Code: " + otpRequest.getOtpCode());
+                response.put("message", "OTP sent via WhatsApp (DEMO MODE - no Twilio configured). Code: " + otpRequest.getOtpCode());
+            } else {
+                response.put("demoOtp", otpRequest.getOtpCode());
+                response.put("demoMode", true);
+                response.put("message", "OTP sent via WhatsApp. If not received, use code: " + otpRequest.getOtpCode());
             }
 
             return ResponseEntity.ok(response);
