@@ -591,6 +591,7 @@ export default function App() {
           <ManagerDashboard
             userRole={userRole}
             restaurantId={currentRestaurantId}
+            onNavigate={(tab) => setActiveTab(tab as ViewTab)}
           />
         )}
 

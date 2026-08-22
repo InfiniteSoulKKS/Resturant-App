@@ -220,12 +220,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             value={summary.totalOrders}
             icon={<Package className="w-5 h-5" />}
             gradient="from-violet-600 to-purple-700"
+            onClick={() => onNavigate('orders')}
           />
           <StatCard
             label="Revenue"
             value={`₹${summary.revenue.toLocaleString()}`}
             icon={<TrendingUp className="w-5 h-5" />}
             gradient="from-emerald-600 to-green-700"
+            onClick={() => onNavigate('dashboard')}
           />
           <StatCard
             label="Pending"
@@ -233,12 +235,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             icon={<Clock className="w-5 h-5" />}
             gradient="from-blue-500 to-blue-600"
             pulse={summary.pending > 0}
+            onClick={() => {
+              sessionStorage.setItem('dashboard_order_filter', 'NEW');
+              onNavigate('orders');
+            }}
           />
           <StatCard
             label="Ready"
             value={summary.ready}
             icon={<Zap className="w-5 h-5" />}
             gradient="from-cyan-500 to-blue-600"
+            onClick={() => {
+              sessionStorage.setItem('dashboard_order_filter', 'PACKED_READY');
+              onNavigate('orders');
+            }}
           />
         </div>
       )}
@@ -246,10 +256,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Secondary Stats Row */}
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <MiniStat label="Preparing" value={summary.preparing} color="amber" icon={<ChefHat className="w-4 h-4" />} />
-          <MiniStat label="Completed" value={summary.completed} color="emerald" icon={<Target className="w-4 h-4" />} />
-          <MiniStat label="Staff" value={staffCount} color="violet" icon={<Users className="w-4 h-4" />} />
-          <MiniStat label="Members" value={memberCount} color="sky" icon={<UserCog className="w-4 h-4" />} />
+          <MiniStat label="Preparing" value={summary.preparing} color="amber" icon={<ChefHat className="w-4 h-4" />} onClick={() => {
+            sessionStorage.setItem('dashboard_order_filter', 'PREPARING');
+            onNavigate('orders');
+          }} />
+          <MiniStat label="Completed" value={summary.completed} color="emerald" icon={<Target className="w-4 h-4" />} onClick={() => {
+            sessionStorage.setItem('dashboard_order_filter', 'COMPLETED');
+            onNavigate('orders');
+          }} />
+          <MiniStat label="Staff" value={staffCount} color="violet" icon={<Users className="w-4 h-4" />} onClick={() => onNavigate('staff_management')} />
+          <MiniStat label="Members" value={memberCount} color="sky" icon={<UserCog className="w-4 h-4" />} onClick={() => onNavigate('customer_memberships')} />
         </div>
       )}
 
@@ -257,7 +273,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {summary && (summary.ingredientShortages > 0 || summary.soldOutDishes > 0 || summary.delayed > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           {summary.ingredientShortages > 0 && (
-            <div className="bg-red-950/30 border border-red-500/30 rounded-2xl p-4 flex items-center gap-3">
+            <button
+              onClick={() => onNavigate('chef_prep')}
+              className="bg-red-950/30 border border-red-500/30 rounded-2xl p-4 flex items-center gap-3 text-left transition-all hover:scale-[1.02] hover:shadow-xl cursor-pointer"
+            >
               <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center">
                 <AlertTriangle className="w-5 h-5 text-red-400" />
               </div>
@@ -265,10 +284,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <p className="text-sm font-bold text-red-400">{summary.ingredientShortages}</p>
                 <p className="text-[10px] text-stone-400">Ingredient Shortages</p>
               </div>
-            </div>
+            </button>
           )}
           {summary.soldOutDishes > 0 && (
-            <div className="bg-amber-950/30 border border-amber-500/30 rounded-2xl p-4 flex items-center gap-3">
+            <button
+              onClick={() => onNavigate('menu_management')}
+              className="bg-amber-950/30 border border-amber-500/30 rounded-2xl p-4 flex items-center gap-3 text-left transition-all hover:scale-[1.02] hover:shadow-xl cursor-pointer"
+            >
               <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
                 <AlertTriangle className="w-5 h-5 text-amber-400" />
               </div>
@@ -276,10 +298,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <p className="text-sm font-bold text-amber-400">{summary.soldOutDishes}</p>
                 <p className="text-[10px] text-stone-400">Sold-Out Dishes</p>
               </div>
-            </div>
+            </button>
           )}
           {summary.delayed > 0 && (
-            <div className="bg-orange-950/30 border border-orange-500/30 rounded-2xl p-4 flex items-center gap-3">
+            <button
+              onClick={() => onNavigate('orders')}
+              className="bg-orange-950/30 border border-orange-500/30 rounded-2xl p-4 flex items-center gap-3 text-left transition-all hover:scale-[1.02] hover:shadow-xl cursor-pointer"
+            >
               <div className="w-10 h-10 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center">
                 <Clock className="w-5 h-5 text-orange-400" />
               </div>
@@ -287,7 +312,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <p className="text-sm font-bold text-orange-400">{summary.delayed}</p>
                 <p className="text-[10px] text-stone-400">Delayed Orders</p>
               </div>
-            </div>
+            </button>
           )}
         </div>
       )}
@@ -363,16 +388,19 @@ function StatCard({
   icon,
   gradient,
   pulse,
+  onClick,
 }: {
   label: string;
   value: string | number;
   icon: React.ReactNode;
   gradient: string;
   pulse?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl p-4 bg-gradient-to-br ${gradient} shadow-xl transition-all hover:scale-[1.02] hover:shadow-2xl`}
+      onClick={onClick}
+      className={`relative overflow-hidden rounded-2xl p-4 bg-gradient-to-br ${gradient} shadow-xl transition-all hover:scale-[1.02] hover:shadow-2xl ${onClick ? 'cursor-pointer' : ''}`}
     >
       <div className="absolute -right-4 -top-4 w-20 h-20 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
       <div className="relative z-10">
@@ -394,11 +422,13 @@ function MiniStat({
   value,
   color,
   icon,
+  onClick,
 }: {
   label: string;
   value: number;
   color: string;
   icon: React.ReactNode;
+  onClick?: () => void;
 }) {
   const colorMap: Record<string, { text: string; bg: string; border: string }> = {
     amber: { text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
@@ -409,7 +439,10 @@ function MiniStat({
   const c = colorMap[color] || colorMap.violet;
 
   return (
-    <div className={`bg-stone-900/80 backdrop-blur-md border border-stone-800 rounded-2xl p-4 transition-all hover:scale-[1.02] hover:shadow-xl`}>
+    <div
+      onClick={onClick}
+      className={`bg-stone-900/80 backdrop-blur-md border border-stone-800 rounded-2xl p-4 transition-all hover:scale-[1.02] hover:shadow-xl ${onClick ? 'cursor-pointer' : ''}`}
+    >
       <div className="flex items-center gap-2 mb-2">
         <div className={`w-8 h-8 rounded-lg ${c.bg} border ${c.border} flex items-center justify-center`}>
           <span className={c.text}>{icon}</span>

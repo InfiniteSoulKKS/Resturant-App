@@ -34,11 +34,13 @@ import {
 interface ManagerDashboardProps {
   userRole: string | null;
   restaurantId: string | null;
+  /** Navigate to a different dashboard tab. */
+  onNavigate?: (tab: string) => void;
 }
 
 type DashboardTab = 'summary' | 'exceptions' | 'shopping' | 'cash' | 'payment';
 
-export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, restaurantId }) => {
+export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, restaurantId, onNavigate }) => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('summary');
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -85,6 +87,15 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
       setPaymentRecon(pr);
     } catch (err) {
       console.error('Failed to load date data:', err);
+    }
+  };
+
+  /** Navigate to the orders list with a status filter. */
+  const goToOrders = (statusFilter?: string) => {
+    if (onNavigate) {
+      // Store the filter in sessionStorage so the orders view can pick it up
+      if (statusFilter) sessionStorage.setItem('dashboard_order_filter', statusFilter);
+      onNavigate('orders');
     }
   };
 
@@ -212,6 +223,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
               icon={<Package className="w-5 h-5" />}
               gradient="from-violet-600 to-purple-700"
               trend={summary.totalOrders > 10 ? 'up' : undefined}
+              onClick={() => goToOrders()}
             />
             <GradientStatCard
               label="Revenue"
@@ -219,6 +231,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
               icon={<TrendingUp className="w-5 h-5" />}
               gradient="from-emerald-600 to-green-700"
               trend="up"
+              onClick={() => setActiveTab('payment')}
             />
             <GradientStatCard
               label="Preparing"
@@ -226,12 +239,14 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
               icon={<ChefHat className="w-5 h-5" />}
               gradient="from-amber-500 to-orange-600"
               pulse={summary.preparing > 0}
+              onClick={() => goToOrders('PREPARING')}
             />
             <GradientStatCard
               label="Ready"
               value={summary.ready}
               icon={<Zap className="w-5 h-5" />}
               gradient="from-cyan-500 to-blue-600"
+              onClick={() => goToOrders('PACKED_READY')}
             />
           </div>
 
@@ -243,12 +258,14 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
               icon={<Clock className="w-4 h-4" />}
               color="blue"
               alert={summary.pending > 5}
+              onClick={() => goToOrders('NEW')}
             />
             <GlassStatCard
               label="Completed"
               value={summary.completed}
               icon={<Target className="w-4 h-4" />}
               color="emerald"
+              onClick={() => goToOrders('COMPLETED')}
             />
             <GlassStatCard
               label="Delayed"
@@ -256,6 +273,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
               icon={<AlertTriangle className="w-4 h-4" />}
               color="red"
               alert={summary.delayed > 0}
+              onClick={() => setActiveTab('exceptions')}
             />
             <GlassStatCard
               label="Cash Pending"
@@ -263,6 +281,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
               icon={<DollarSign className="w-4 h-4" />}
               color="amber"
               alert={summary.cashPaymentsPending > 0}
+              onClick={() => setActiveTab('cash')}
             />
           </div>
 
@@ -275,10 +294,10 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
                 Order Pipeline
               </h3>
               <div className="space-y-3">
-                <PipelineRow label="New" count={summary.pending} total={summary.totalOrders} color="bg-blue-500" />
-                <PipelineRow label="Preparing" count={summary.preparing} total={summary.totalOrders} color="bg-amber-500" />
-                <PipelineRow label="Ready" count={summary.ready} total={summary.totalOrders} color="bg-cyan-500" />
-                <PipelineRow label="Completed" count={summary.completed} total={summary.totalOrders} color="bg-emerald-500" />
+                <PipelineRow label="New" count={summary.pending} total={summary.totalOrders} color="bg-blue-500" onClick={() => goToOrders('NEW')} />
+                <PipelineRow label="Preparing" count={summary.preparing} total={summary.totalOrders} color="bg-amber-500" onClick={() => goToOrders('PREPARING')} />
+                <PipelineRow label="Ready" count={summary.ready} total={summary.totalOrders} color="bg-cyan-500" onClick={() => goToOrders('PACKED_READY')} />
+                <PipelineRow label="Completed" count={summary.completed} total={summary.totalOrders} color="bg-emerald-500" onClick={() => goToOrders('COMPLETED')} />
               </div>
             </div>
 
@@ -319,7 +338,10 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
                 Stock Alerts
               </h3>
               <div className="space-y-3">
-                <div className={`flex items-center justify-between p-3 rounded-xl border ${summary.ingredientShortages > 0 ? 'bg-red-500/10 border-red-500/30' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
+                <button
+                  onClick={() => setActiveTab('shopping')}
+                  className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all hover:scale-[1.01] cursor-pointer ${summary.ingredientShortages > 0 ? 'bg-red-500/10 border-red-500/30 hover:bg-red-500/15' : 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10'}`}
+                >
                   <div className="flex items-center gap-2">
                     <Package className={`w-4 h-4 ${summary.ingredientShortages > 0 ? 'text-red-400' : 'text-emerald-400'}`} />
                     <span className="text-xs font-medium text-stone-300">Ingredient Shortages</span>
@@ -327,8 +349,11 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
                   <span className={`text-lg font-bold font-mono ${summary.ingredientShortages > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                     {summary.ingredientShortages}
                   </span>
-                </div>
-                <div className={`flex items-center justify-between p-3 rounded-xl border ${summary.soldOutDishes > 0 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
+                </button>
+                <button
+                  onClick={() => onNavigate ? onNavigate('menu_management') : undefined}
+                  className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all hover:scale-[1.01] cursor-pointer ${summary.soldOutDishes > 0 ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/15' : 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10'}`}
+                >
                   <div className="flex items-center gap-2">
                     <AlertTriangle className={`w-4 h-4 ${summary.soldOutDishes > 0 ? 'text-amber-400' : 'text-emerald-400'}`} />
                     <span className="text-xs font-medium text-stone-300">Sold-Out Dishes</span>
@@ -336,7 +361,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
                   <span className={`text-lg font-bold font-mono ${summary.soldOutDishes > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
                     {summary.soldOutDishes}
                   </span>
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -347,28 +372,37 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
       {activeTab === 'exceptions' && exceptions && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <AlertCard label="Payment Failures" count={exceptions.paymentFailures} color="red" icon={<CreditCard className="w-5 h-5" />} />
-            <AlertCard label="Delayed Orders" count={exceptions.delayedOrders} color="amber" icon={<Clock className="w-5 h-5" />} />
-            <AlertCard label="Ingredient Shortages" count={exceptions.ingredientShortages} color="red" icon={<Package className="w-5 h-5" />} />
-            <AlertCard label="Cash Pending" count={exceptions.cashPaymentsPending} color="amber" icon={<DollarSign className="w-5 h-5" />} />
-            <AlertCard label="Refunds Pending" count={exceptions.refundsPending} color="orange" icon={<Receipt className="w-5 h-5" />} />
-            <AlertCard label="Sold-Out Dishes" count={exceptions.soldOutDishes} color="slate" icon={<AlertTriangle className="w-5 h-5" />} />
+            <AlertCard label="Payment Failures" count={exceptions.paymentFailures} color="red" icon={<CreditCard className="w-5 h-5" />} onClick={() => setActiveTab('payment')} />
+            <AlertCard label="Delayed Orders" count={exceptions.delayedOrders} color="amber" icon={<Clock className="w-5 h-5" />} onClick={() => {}} />
+            <AlertCard label="Ingredient Shortages" count={exceptions.ingredientShortages} color="red" icon={<Package className="w-5 h-5" />} onClick={() => setActiveTab('shopping')} />
+            <AlertCard label="Cash Pending" count={exceptions.cashPaymentsPending} color="amber" icon={<DollarSign className="w-5 h-5" />} onClick={() => setActiveTab('cash')} />
+            <AlertCard label="Refunds Pending" count={exceptions.refundsPending} color="orange" icon={<Receipt className="w-5 h-5" />} onClick={() => setActiveTab('payment')} />
+            <AlertCard label="Sold-Out Dishes" count={exceptions.soldOutDishes} color="slate" icon={<AlertTriangle className="w-5 h-5" />} onClick={() => onNavigate ? onNavigate('menu_management') : undefined} />
           </div>
 
           {/* Quick counts row */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="bg-stone-900/80 backdrop-blur-md rounded-2xl p-4 border border-blue-500/20">
+            <button
+              onClick={() => goToOrders('NEW')}
+              className="bg-stone-900/80 backdrop-blur-md rounded-2xl p-4 border border-blue-500/20 text-left transition-all hover:scale-[1.02] hover:shadow-xl cursor-pointer"
+            >
               <p className="text-[10px] text-stone-500 uppercase tracking-wider font-semibold mb-1">New Orders</p>
               <p className="text-2xl font-bold text-blue-400 font-mono">{exceptions.newOrders}</p>
-            </div>
-            <div className="bg-stone-900/80 backdrop-blur-md rounded-2xl p-4 border border-amber-500/20">
+            </button>
+            <button
+              onClick={() => goToOrders('PREPARING')}
+              className="bg-stone-900/80 backdrop-blur-md rounded-2xl p-4 border border-amber-500/20 text-left transition-all hover:scale-[1.02] hover:shadow-xl cursor-pointer"
+            >
               <p className="text-[10px] text-stone-500 uppercase tracking-wider font-semibold mb-1">Preparing</p>
               <p className="text-2xl font-bold text-amber-400 font-mono">{exceptions.preparingOrders}</p>
-            </div>
-            <div className="bg-stone-900/80 backdrop-blur-md rounded-2xl p-4 border border-emerald-500/20">
+            </button>
+            <button
+              onClick={() => goToOrders('PACKED_READY')}
+              className="bg-stone-900/80 backdrop-blur-md rounded-2xl p-4 border border-emerald-500/20 text-left transition-all hover:scale-[1.02] hover:shadow-xl cursor-pointer"
+            >
               <p className="text-[10px] text-stone-500 uppercase tracking-wider font-semibold mb-1">Ready for Pickup</p>
               <p className="text-2xl font-bold text-emerald-400 font-mono">{exceptions.readyOrders}</p>
-            </div>
+            </button>
           </div>
 
           {exceptions.delayedOrderDetails.length > 0 && (
@@ -587,16 +621,20 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ userRole, re
 
 // ─── Sub-components ──────────────────────────────────────────────
 
-function GradientStatCard({ label, value, icon, gradient, trend, pulse }: {
+function GradientStatCard({ label, value, icon, gradient, trend, pulse, onClick }: {
   label: string;
   value: string | number;
   icon: React.ReactNode;
   gradient: string;
   trend?: 'up' | 'down';
   pulse?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <div className={`relative overflow-hidden rounded-2xl p-4 bg-gradient-to-br ${gradient} shadow-xl transition-all hover:scale-[1.02] hover:shadow-2xl`}>
+    <div
+      onClick={onClick}
+      className={`relative overflow-hidden rounded-2xl p-4 bg-gradient-to-br ${gradient} shadow-xl transition-all hover:scale-[1.02] hover:shadow-2xl ${onClick ? 'cursor-pointer' : ''}`}
+    >
       {/* Background decoration */}
       <div className="absolute -right-4 -top-4 w-20 h-20 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
       <div className="absolute -left-2 -bottom-2 w-12 h-12 bg-white/5 rounded-full blur-lg pointer-events-none"></div>
@@ -616,12 +654,13 @@ function GradientStatCard({ label, value, icon, gradient, trend, pulse }: {
   );
 }
 
-function GlassStatCard({ label, value, icon, color, alert }: {
+function GlassStatCard({ label, value, icon, color, alert, onClick }: {
   label: string;
   value: string | number;
   icon: React.ReactNode;
   color: string;
   alert?: boolean;
+  onClick?: () => void;
 }) {
   const colorMap: Record<string, { text: string; border: string; bg: string }> = {
     violet: { text: 'text-violet-400', border: 'border-violet-500/20', bg: 'bg-violet-500/10' },
@@ -633,9 +672,12 @@ function GlassStatCard({ label, value, icon, color, alert }: {
   };
   const c = colorMap[color] || colorMap.violet;
   return (
-    <div className={`bg-stone-900/80 backdrop-blur-md border rounded-2xl p-4 transition-all hover:scale-[1.02] hover:shadow-xl ${
-      alert ? `border-amber-500/40 shadow-amber-500/10 shadow-lg` : `border-stone-800 shadow-xl`
-    }`}>
+    <div
+      onClick={onClick}
+      className={`bg-stone-900/80 backdrop-blur-md border rounded-2xl p-4 transition-all hover:scale-[1.02] hover:shadow-xl ${
+        alert ? `border-amber-500/40 shadow-amber-500/10 shadow-lg` : `border-stone-800 shadow-xl`
+      } ${onClick ? 'cursor-pointer' : ''}`}
+    >
       <div className="flex items-center gap-2 mb-2">
         <div className={`w-8 h-8 rounded-lg ${c.bg} flex items-center justify-center`}>
           <span className={c.text}>{icon}</span>
@@ -647,15 +689,16 @@ function GlassStatCard({ label, value, icon, color, alert }: {
   );
 }
 
-function PipelineRow({ label, count, total, color }: {
+function PipelineRow({ label, count, total, color, onClick }: {
   label: string;
   count: number;
   total: number;
   color: string;
+  onClick?: () => void;
 }) {
   const pct = total > 0 ? (count / total) * 100 : 0;
   return (
-    <div>
+    <div onClick={onClick} className={onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}>
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs text-stone-300 font-medium">{label}</span>
         <span className="text-xs font-bold text-stone-200 font-mono">{count}</span>
@@ -670,7 +713,7 @@ function PipelineRow({ label, count, total, color }: {
   );
 }
 
-function AlertCard({ label, count, color, icon }: { label: string; count: number; color: string; icon: React.ReactNode }) {
+function AlertCard({ label, count, color, icon, onClick }: { label: string; count: number; color: string; icon: React.ReactNode; onClick?: () => void }) {
   const styleMap: Record<string, { bg: string; border: string; text: string; iconText: string }> = {
     red: { bg: 'bg-red-950/30', border: 'border-red-500/30', text: 'text-red-400', iconText: 'text-red-400' },
     amber: { bg: 'bg-amber-950/30', border: 'border-amber-500/30', text: 'text-amber-400', iconText: 'text-amber-400' },
@@ -679,7 +722,10 @@ function AlertCard({ label, count, color, icon }: { label: string; count: number
   };
   const s = styleMap[color] || styleMap.slate;
   return (
-    <div className={`${s.bg} border ${s.border} rounded-2xl p-4 transition-all hover:scale-[1.02] hover:shadow-xl`}>
+    <div
+      onClick={onClick}
+      className={`${s.bg} border ${s.border} rounded-2xl p-4 transition-all hover:scale-[1.02] hover:shadow-xl ${onClick ? 'cursor-pointer' : ''}`}
+    >
       <div className="flex items-center justify-between mb-2">
         <span className={s.iconText}>{icon}</span>
         {count > 0 && (
