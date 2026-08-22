@@ -187,49 +187,50 @@ public class DataSeeder implements CommandLineRunner {
     // ═══════════════════════════════════════════════════════════════════════
 
     private void seedMenuV2(String restaurantId, String p) {
+        String IMG = "https://images.unsplash.com/";
         List<MenuItem> items = List.of(
                 // ── STARTERS (6) ──
-                mi(p+"_MI_1",  restaurantId, "Butter Chicken",      "Tandoor-roasted chicken in rich tomato-butter gravy with kasuri methi.",    "420", "Mains",    false, "Medium",    18, 30),
-                mi(p+"_MI_2",  restaurantId, "Paneer Tikka",        "Char-grilled cottage cheese marinated in yogurt and spices with mint chutney.","320", "Starters", true,  "Spicy",     12, 40),
-                mi(p+"_MI_3",  restaurantId, "Garlic Naan",         "Stone-oven flatbread brushed with garlic butter and fresh coriander.",       "80",  "Breads",   true,  "Mild",      5,  60),
-                mi(p+"_MI_4",  restaurantId, "Gulab Jamun",         "Warm milk dumplings in rose-cardamom syrup topped with crushed pistachios.", "150", "Desserts", true,  "Mild",      8,  25),
-                mi(p+"_MI_5",  restaurantId, "Masala Chai",         "Spiced Assam tea brewed with cardamom, ginger, and fresh milk.",            "60",  "Beverages",true,  "Mild",      4,  80),
-                mi(p+"_MI_6",  restaurantId, "Chicken Seekh Kebab", "Minced chicken skewered with herbs and spices, charcoal-grilled.",          "280", "Starters", false, "Medium",    15, 35),
-                mi(p+"_MI_7",  restaurantId, "Crispy Paneer 65",    "Deep-fried paneer tossed with curry leaves, red chilies, and yogurt.",       "260", "Starters", true,  "Spicy",     12, 40),
-                mi(p+"_MI_8",  restaurantId, "Tandoori Prawns",     "Jumbo prawns marinated in yogurt and tandoori spices, flame-grilled.",       "450", "Starters", false, "Medium",    14, 20),
+                mi(p+"_MI_1",  restaurantId, "Butter Chicken",      "Tandoor-roasted chicken in rich tomato-butter gravy with kasuri methi.",    "420", "Mains",    false, "Medium",    18, 30, IMG+"photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_2",  restaurantId, "Paneer Tikka",        "Char-grilled cottage cheese marinated in yogurt and spices with mint chutney.","320", "Starters", true,  "Spicy",     12, 40, IMG+"photo-1567188040759-fb8a883dc6d8?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_3",  restaurantId, "Garlic Naan",         "Stone-oven flatbread brushed with garlic butter and fresh coriander.",       "80",  "Breads",   true,  "Mild",      5,  60, IMG+"photo-1565557623262-b51c2513a641?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_4",  restaurantId, "Gulab Jamun",         "Warm milk dumplings in rose-cardamom syrup topped with crushed pistachios.", "150", "Desserts", true,  "Mild",      8,  25, IMG+"photo-1666190466527-7e24e9c10e05?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_5",  restaurantId, "Masala Chai",         "Spiced Assam tea brewed with cardamom, ginger, and fresh milk.",            "60",  "Beverages",true,  "Mild",      4,  80, IMG+"photo-1564890369478-c89ca6d9cde9?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_6",  restaurantId, "Chicken Seekh Kebab", "Minced chicken skewered with herbs and spices, charcoal-grilled.",          "280", "Starters", false, "Medium",    15, 35, IMG+"photo-1599487488170-d11ec9c172f0?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_7",  restaurantId, "Crispy Paneer 65",    "Deep-fried paneer tossed with curry leaves, red chilies, and yogurt.",       "260", "Starters", true,  "Spicy",     12, 40, IMG+"photo-1631452180519-c014fe946bc7?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_8",  restaurantId, "Tandoori Prawns",     "Jumbo prawns marinated in yogurt and tandoori spices, flame-grilled.",       "450", "Starters", false, "Medium",    14, 20, IMG+"photo-1599487488170-d11ec9c172f0?auto=format&fit=crop&q=80&w=800"),
                 // ── MAINS (7) ──
-                mi(p+"_MI_9",  restaurantId, "Dal Makhani",         "Overnight slow-cooked black lentils enriched with white butter and cream.",  "260", "Mains",    true,  "Mild",      10, 50),
-                mi(p+"_MI_10", restaurantId, "Mutton Rogan Josh",   "Kashmiri slow-braised lamb in aromatic red chili and fennel gravy.",        "480", "Mains",    false, "Fiery Hot", 25, 25),
-                mi(p+"_MI_11", restaurantId, "Palak Paneer",        "Creamed spinach slow-cooked with soft cottage cheese cubes.",               "240", "Mains",    true,  "Medium",    12, 35),
-                mi(p+"_MI_12", restaurantId, "Hyderabadi Biryani",  "Fragrant basmati rice layered with saffron, tender goat, and fried onions.","520", "Mains",    false, "Spicy",     22, 20),
-                mi(p+"_MI_13", restaurantId, "Chole Bhature",       "Spiced chickpea curry served with fluffy deep-fried bread.",               "180", "Mains",    true,  "Medium",    12, 45),
-                mi(p+"_MI_14", restaurantId, "Fish Amritsari",      "Crispy gram-flour battered river fish with tangy tamarind chutney.",       "380", "Mains",    false, "Medium",    15, 25),
-                mi(p+"_MI_15", restaurantId, "Veg Biryani",         "Fragrant basmati rice layered with saffron, mixed vegetables, and raita.",  "300", "Mains",    true,  "Mild",      18, 40),
+                mi(p+"_MI_9",  restaurantId, "Dal Makhani",         "Overnight slow-cooked black lentils enriched with white butter and cream.",  "260", "Mains",    true,  "Mild",      10, 50, IMG+"photo-1546833999-b9f581a1996d?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_10", restaurantId, "Mutton Rogan Josh",   "Kashmiri slow-braised lamb in aromatic red chili and fennel gravy.",        "480", "Mains",    false, "Fiery Hot", 25, 25, IMG+"photo-1545247181-516773cae754?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_11", restaurantId, "Palak Paneer",        "Creamed spinach slow-cooked with soft cottage cheese cubes.",               "240", "Mains",    true,  "Medium",    12, 35, IMG+"photo-1601050690597-df0568f70950?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_12", restaurantId, "Hyderabadi Biryani",  "Fragrant basmati rice layered with saffron, tender goat, and fried onions.","520", "Mains",    false, "Spicy",     22, 20, IMG+"photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_13", restaurantId, "Chole Bhature",       "Spiced chickpea curry served with fluffy deep-fried bread.",               "180", "Mains",    true,  "Medium",    12, 45, IMG+"photo-1625398407796-82650a8c135f?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_14", restaurantId, "Fish Amritsari",      "Crispy gram-flour battered river fish with tangy tamarind chutney.",       "380", "Mains",    false, "Medium",    15, 25, IMG+"photo-1580476262798-bddd9f4b7369?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_15", restaurantId, "Veg Biryani",         "Fragrant basmati rice layered with saffron, mixed vegetables, and raita.",  "300", "Mains",    true,  "Mild",      18, 40, IMG+"photo-1589301760014-d929f3979dbc?auto=format&fit=crop&q=80&w=800"),
                 // ── BREADS (4) ──
-                mi(p+"_MI_16", restaurantId, "Butter Naan",         "Soft leavened flatbread baked in tandoor, brushed with melted butter.",     "70",  "Breads",   true,  "Mild",      5,  70),
-                mi(p+"_MI_17", restaurantId, "Cheese Garlic Naan",  "Naan stuffed with mozzarella cheese and roasted garlic.",                  "120", "Breads",   true,  "Mild",      6,  50),
-                mi(p+"_MI_18", restaurantId, "Laccha Paratha",      "Flaky multi-layered whole wheat bread, pan-fried with ghee.",              "90",  "Breads",   true,  "Mild",      6,  55),
-                mi(p+"_MI_19", restaurantId, "Missi Roti",          "Gram flour flatbread seasoned with ajwain and fenugreek leaves.",           "75",  "Breads",   true,  "Medium",    5,  50),
+                mi(p+"_MI_16", restaurantId, "Butter Naan",         "Soft leavened flatbread baked in tandoor, brushed with melted butter.",     "70",  "Breads",   true,  "Mild",      5,  70, IMG+"photo-1565557623262-b51c2513a641?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_17", restaurantId, "Cheese Garlic Naan",  "Naan stuffed with mozzarella cheese and roasted garlic.",                  "120", "Breads",   true,  "Mild",      6,  50, IMG+"photo-1586444248879-bc802ef9c469?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_18", restaurantId, "Laccha Paratha",      "Flaky multi-layered whole wheat bread, pan-fried with ghee.",              "90",  "Breads",   true,  "Mild",      6,  55, IMG+"photo-1565557623262-b51c2513a641?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_19", restaurantId, "Missi Roti",          "Gram flour flatbread seasoned with ajwain and fenugreek leaves.",           "75",  "Breads",   true,  "Medium",    5,  50, IMG+"photo-1565557623262-b51c2513a641?auto=format&fit=crop&q=80&w=800"),
                 // ── DESSERTS (4) ──
-                mi(p+"_MI_20", restaurantId, "Rasmalai",            "Delicate cottage cheese patties soaked in saffron-cardamom milk.",         "180", "Desserts", true,  "Mild",      5,  25),
-                mi(p+"_MI_21", restaurantId, "Kulfi Falooda",       "Traditional Indian ice cream with vermicelli, rose syrup, and pistachios.", "160", "Desserts", true,  "Mild",      4,  30),
-                mi(p+"_MI_22", restaurantId, "Gajar Ka Halwa",      "Carrot pudding slow-cooked in milk, ghee, and cardamom, topped with nuts.", "140", "Desserts", true,  "Mild",      8,  20),
-                mi(p+"_MI_23", restaurantId, "Phirni",              "Creamy ground rice pudding set in earthenware with rose petals.",          "130", "Desserts", true,  "Mild",      5,  25),
+                mi(p+"_MI_20", restaurantId, "Rasmalai",            "Delicate cottage cheese patties soaked in saffron-cardamom milk.",         "180", "Desserts", true,  "Mild",      5,  25, IMG+"photo-1666190466527-7e24e9c10e05?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_21", restaurantId, "Kulfi Falooda",       "Traditional Indian ice cream with vermicelli, rose syrup, and pistachios.", "160", "Desserts", true,  "Mild",      4,  30, IMG+"photo-1571006046853-61c6c38e34b6?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_22", restaurantId, "Gajar Ka Halwa",      "Carrot pudding slow-cooked in milk, ghee, and cardamom, topped with nuts.", "140", "Desserts", true,  "Mild",      8,  20, IMG+"photo-1588166524941-3bf61a9c41db?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_23", restaurantId, "Phirni",              "Creamy ground rice pudding set in earthenware with rose petals.",          "130", "Desserts", true,  "Mild",      5,  25, IMG+"photo-1626132647523-6675791f3f65?auto=format&fit=crop&q=80&w=800"),
                 // ── BEVERAGES (2) ──
-                mi(p+"_MI_24", restaurantId, "Mango Lassi",         "Creamy yogurt shake blended with Alphonso mango pulp and cardamom.",       "120", "Beverages",true,  "Mild",      3,  60),
-                mi(p+"_MI_25", restaurantId, "Cold Coffee",         "Iced coffee blended with vanilla ice cream, cocoa dust, and cream.",       "150", "Beverages",true,  "Mild",      3,  50)
+                mi(p+"_MI_24", restaurantId, "Mango Lassi",         "Creamy yogurt shake blended with Alphonso mango pulp and cardamom.",       "120", "Beverages",true,  "Mild",      3,  60, IMG+"photo-1527661591475-527312dd65f5?auto=format&fit=crop&q=80&w=800"),
+                mi(p+"_MI_25", restaurantId, "Cold Coffee",         "Iced coffee blended with vanilla ice cream, cocoa dust, and cream.",       "150", "Beverages",true,  "Mild",      3,  50, IMG+"photo-1461023058943-07fcbe16d735?auto=format&fit=crop&q=80&w=800")
         );
         menuItemRepository.saveAll(items);
         log.info("DataSeeder: {} menu items seeded for {}", items.size(), restaurantId);
     }
 
-    /** Helper to build a MenuItem with plate count. */
+    /** Helper to build a MenuItem with plate count and dish-specific image. */
     private MenuItem mi(String id, String restId, String title, String desc, String price,
-                        String cat, boolean veg, String spice, int prep, int plates) {
+                        String cat, boolean veg, String spice, int prep, int plates, String imageUrl) {
         return MenuItem.builder().id(id).restaurantId(restId).title(title).description(desc)
                 .price(new BigDecimal(price)).category(cat).status("Available").isVeg(veg)
                 .spiceLevel(spice).prepMinutes(prep).dailyPlateCount(plates)
-                .imageUrl("https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&q=80&w=800")
+                .imageUrl(imageUrl)
                 .build();
     }
 
@@ -265,7 +266,24 @@ public class DataSeeder implements CommandLineRunner {
                 ing(p+"_ING_23", restaurantId, "Cashews",       "g",     "300", "800"),
                 ing(p+"_ING_24", restaurantId, "Almonds",       "g",     "400", "600"),
                 ing(p+"_ING_25", restaurantId, "Rose Water",    "ml",    "100", "250"),
-                ing(p+"_ING_26", restaurantId, "Fenugreek",     "g",     "200", "500")
+                ing(p+"_ING_26", restaurantId, "Fenugreek",     "g",     "200", "500"),
+                // ── Commodities & Packaging ──
+                ing(p+"_ING_27", restaurantId, "Handwash Liquid",       "ml",   "5000", "1500"),
+                ing(p+"_ING_28", restaurantId, "Napkins (Paper)",       "piece","500",  "150"),
+                ing(p+"_ING_29", restaurantId, "Tissue Boxes",          "piece","100",  "30"),
+                ing(p+"_ING_30", restaurantId, "Plastic Parcel Box (S)","piece","200",  "60"),
+                ing(p+"_ING_31", restaurantId, "Plastic Parcel Box (M)","piece","150",  "50"),
+                ing(p+"_ING_32", restaurantId, "Plastic Parcel Box (L)","piece","100",  "40"),
+                ing(p+"_ING_33", restaurantId, "Aluminum Foil Container (S)","piece","120","40"),
+                ing(p+"_ING_34", restaurantId, "Aluminum Foil Container (M)","piece","100","35"),
+                ing(p+"_ING_35", restaurantId, "Aluminum Foil Container (L)","piece","80", "30"),
+                ing(p+"_ING_36", restaurantId, "Plastic Spoons",        "piece","300",  "100"),
+                ing(p+"_ING_37", restaurantId, "Plastic Forks",         "piece","300",  "100"),
+                ing(p+"_ING_38", restaurantId, "Plastic Knives",        "piece","200",  "80"),
+                ing(p+"_ING_39", restaurantId, "Plastic Bags (Large)",  "piece","400",  "120"),
+                ing(p+"_ING_40", restaurantId, "Paper Bags (Takeaway)", "piece","250",  "80"),
+                ing(p+"_ING_41", restaurantId, "Dishwashing Liquid",     "ml",   "3000", "1000"),
+                ing(p+"_ING_42", restaurantId, "Garbage Bags",          "piece","200",  "60")
         );
         ingredientRepository.saveAll(stock);
         log.info("DataSeeder: {} ingredients seeded for {}", stock.size(), restaurantId);
