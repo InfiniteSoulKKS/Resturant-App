@@ -65,13 +65,6 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
     if (isOpen) setPaymentError(null);
   }, [isOpen]);
 
-  // Auto-dismiss payment error after 5 seconds
-  React.useEffect(() => {
-    if (paymentError) {
-      const timer = setTimeout(() => setPaymentError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [paymentError]);
   const [orderType, setOrderType] = useState<'PICKUP' | 'DINE_IN' | 'PRE_ORDER'>('PICKUP');
   const [pickupTime, setPickupTime] = useState('30 Mins (Ready by 07:45 PM)');
   const [dineInTimeSlot, setDineInTimeSlot] = useState('12:00 PM');
@@ -94,6 +87,14 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
     gateway: string;
     notifications: string[];
   } | null>(null);
+
+  // Auto-dismiss payment error after 5 seconds
+  React.useEffect(() => {
+    if (paymentError) {
+      const timer = setTimeout(() => setPaymentError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [paymentError]);
 
   // Pre-order availability: server-computed orderable dates for this cart's dishes.
   const [preOrderDates, setPreOrderDates] = useState<PreOrderDateOption[]>([]);
