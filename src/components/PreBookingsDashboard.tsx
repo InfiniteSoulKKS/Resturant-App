@@ -83,14 +83,26 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
   };
 
   const filteredOrders = orders.filter((ord) => {
-    // Declined orders are shown in a separate tab
+    // ── Date Tab: separate Today's Pickups from Scheduled Ahead ──
+    const isToday = (() => {
+      if (!ord.pickupTime) return true; // no pickup time → treat as today
+      const pt = new Date(ord.pickupTime);
+      const now = new Date();
+      return pt.getFullYear() === now.getFullYear() && pt.getMonth() === now.getMonth() && pt.getDate() === now.getDate();
+    })();
 
+    if (filterTab === 'today' && !isToday) return false;
+    if (filterTab === 'upcoming' && isToday) return false;
+
+    // ── Status filter (including cancelled / declined) ──
     const matchesStatus =
       statusFilter === 'ALL' ||
       (statusFilter === 'NEW' && ord.orderStatus === 'NEW') ||
       (statusFilter === 'PREPARING' && ord.orderStatus === 'PREPARING') ||
       (statusFilter === 'READY' && (ord.orderStatus === 'PACKED_READY' || ord.orderStatus === 'READY')) ||
-      (statusFilter === 'COMPLETED' && ord.orderStatus === 'COMPLETED');
+      (statusFilter === 'COMPLETED' && ord.orderStatus === 'COMPLETED') ||
+      (statusFilter === 'CANCELLED' && ord.orderStatus === 'CANCELLED') ||
+      (statusFilter === 'DECLINED' && ord.orderStatus === 'DECLINED');
 
     const matchesSearch =
       ord.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -183,6 +195,8 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
             { id: 'PREPARING', label: 'Cooking' },
             { id: 'READY', label: 'Packed & Ready' },
             { id: 'COMPLETED', label: 'Completed' },
+            { id: 'CANCELLED', label: 'Cancelled' },
+            { id: 'DECLINED', label: 'Declined' },
           ].map((st) => (
             <button
               key={st.id}
@@ -194,6 +208,16 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
               }`}
             >
               {st.label}
+              {st.id === 'CANCELLED' && (
+                <span className="ml-1 text-[9px] font-mono bg-stone-800 px-1.5 py-0.5 rounded-md">
+                  {orders.filter(o => o.orderStatus === 'CANCELLED').length}
+                </span>
+              )}
+              {st.id === 'DECLINED' && (
+                <span className="ml-1 text-[9px] font-mono bg-stone-800 px-1.5 py-0.5 rounded-md">
+                  {orders.filter(o => o.orderStatus === 'DECLINED').length}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -208,6 +232,8 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
             const isPreparing = ord.orderStatus === 'PREPARING';
             const isPackedReady = ord.orderStatus === 'PACKED_READY' || ord.orderStatus === 'READY';
             const isCompleted = ord.orderStatus === 'COMPLETED';
+            const isCancelled = ord.orderStatus === 'CANCELLED';
+            const isDeclined = ord.orderStatus === 'DECLINED';
 
             return (
               <div
@@ -225,6 +251,10 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                           ? 'bg-amber-400 animate-pulse'
                           : isPackedReady
                           ? 'bg-emerald-400'
+                          : isCancelled
+                          ? 'bg-red-500'
+                          : isDeclined
+                          ? 'bg-rose-400'
                           : 'bg-stone-500'
                       }`}
                     ></span>
@@ -235,6 +265,10 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                         ? 'PREPARING'
                         : isPackedReady
                         ? 'PACKED & READY'
+                        : isCancelled
+                        ? 'CANCELLED'
+                        : isDeclined
+                        ? 'DECLINED'
                         : 'COMPLETED'}
                     </span>
                   </div>
@@ -243,12 +277,18 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                     <span className="text-[10px] text-stone-500 block uppercase font-mono">
                       Fulfillment
                     </span>
-                    <span className="text-xs text-amber-400 font-bold block">
-                      {ord.orderType === 'PICKUP'
-                        ? '📦 TAKEAWAY PICKUP'
-                        : ord.orderType === 'PRE_ORDER'
-                        ? '📅 PRE-ORDER — ' + (ord.timeSlot || 'Scheduled')
-                        : '🍽️ DINE-IN TABLE ' + (ord.tableNumber || '#1')}
+                    <span className="text-xs font-bold block">
+                      {isCancelled ? (
+                        <span className="text-red-400">🚫 CANCELLED</span>
+                      ) : isDeclined ? (
+                        <span className="text-rose-400">❌ DECLINED</span>
+                      ) : ord.orderType === 'PICKUP' ? (
+                        <span className="text-amber-400">📦 TAKEAWAY PICKUP</span>
+                      ) : ord.orderType === 'PRE_ORDER' ? (
+                        <span className="text-amber-400">📅 PRE-ORDER — {ord.timeSlot || 'Scheduled'}</span>
+                      ) : (
+                        <span className="text-amber-400">🍽️ DINE-IN TABLE {ord.tableNumber || '#1'}</span>
+                      )}
                     </span>
                   </div>
 
@@ -260,6 +300,17 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
 
                 {/* Details Section */}
                 <div className="flex-1 flex flex-col justify-between">
+                  {(isCancelled || isDeclined) && (
+                    <div className={`mb-3 p-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                      isCancelled
+                        ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                        : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
+                    }`}>
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      {isCancelled ? 'Cancelled' : 'Declined'}{ord.cancelReason ? `: ${ord.cancelReason}` : ''}
+                      {ord.paymentStatus === 'PAID' && ' — Refund will be processed.'}
+                    </div>
+                  )}
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="text-base font-bold font-serif text-stone-100 flex items-center gap-2">

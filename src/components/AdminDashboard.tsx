@@ -57,22 +57,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [staffCount, setStaffCount] = useState(0);
   const [memberCount, setMemberCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!restaurantId) return;
     const load = async () => {
       setLoading(true);
+      setError(null);
       try {
-        const [s, staff, members] = await Promise.all([
+        const results = await Promise.allSettled([
           getDashboardSummary(restaurantId),
           listStaff(restaurantId),
           listCustomerMembers(restaurantId),
         ]);
-        setSummary(s);
-        setStaffCount(staff.length);
-        setMemberCount(members.length);
+        if (results[0].status === 'fulfilled') setSummary(results[0].value);
+        else setError('Failed to load dashboard summary');
+        if (results[1].status === 'fulfilled') setStaffCount(results[1].value.length);
+        if (results[2].status === 'fulfilled') setMemberCount(results[2].value.length);
       } catch (err) {
         console.error('Failed to load admin dashboard:', err);
+        setError('Failed to load dashboard data');
       } finally {
         setLoading(false);
       }
@@ -153,6 +157,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <RefreshCw className="w-6 h-6 text-amber-400 animate-spin" />
           </div>
           <p className="text-sm text-stone-400 font-medium">Loading admin dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !summary) {
+    return (
+      <div className="pt-20 max-w-[1440px] mx-auto px-4 md:px-8 py-6 pb-28">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center">
+            <AlertTriangle className="w-6 h-6 text-red-400" />
+          </div>
+          <p className="text-sm text-red-400 font-medium">{error}</p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 rounded-xl bg-amber-500/20 text-amber-400 text-xs font-bold border border-amber-500/30 hover:bg-amber-500/30 transition-colors cursor-pointer">
+            Retry
+          </button>
         </div>
       </div>
     );
