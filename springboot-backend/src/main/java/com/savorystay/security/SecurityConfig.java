@@ -51,6 +51,8 @@ public class SecurityConfig {
                     "/api/v1/restaurants",
                     "/api/v1/restaurants/*",
                     "/api/v1/restaurants/*/menu",
+                    "/api/v1/restaurants/*/plate-availability",
+                    "/api/v1/restaurants/*/table-availability",
                     // Guests may browse the pre-order availability calendar while
                     // signed out — it carries no customer data (the endpoint reads
                     // the restaurant id from the request body, not the session).
