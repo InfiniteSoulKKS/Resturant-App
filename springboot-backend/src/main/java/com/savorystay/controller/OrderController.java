@@ -10,6 +10,7 @@ import com.savorystay.dto.UpdateOrderStatusRequest;
 import com.savorystay.entity.Order;
 import com.savorystay.entity.OrderItem;
 import com.savorystay.common.OrderStateMachine;
+import com.savorystay.repository.OrderRepository;
 import com.savorystay.service.AuditService;
 import com.savorystay.service.OrderService;
 import com.savorystay.security.RoleUtils;
@@ -34,6 +35,7 @@ public class OrderController {
 
     private final OrderService orderService;
     private final AuditService auditService;
+    private final OrderRepository orderRepository;
 
     @PostMapping
     @PreAuthorize("isAuthenticated()")
@@ -185,6 +187,15 @@ public class OrderController {
             if (restaurantId == null) {
                 return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "No restaurant scope"));
             }
+            // Pre-set cancel/decline reason if provided
+            String reason = req.reason();
+            if (reason != null && !reason.isBlank()) {
+                var orderOpt = orderService.getById(req.orderId());
+                orderOpt.ifPresent(o -> {
+                    o.setCancelReason(reason);
+                    orderRepository.save(o);
+                });
+            }
             Order updated = orderService.updateStatus(
                     req.orderId(), restaurantId, req.status().toUpperCase(),
                     TenantContext.getUserId(), TenantContext.getRole());
@@ -316,6 +327,10 @@ public class OrderController {
             }
 
             OrderStateMachine.validate(order.getOrderStatus(), "CANCELLED", role);
+
+            // Pre-set the cancel reason so updateStatus preserves it
+            order.setCancelReason(reason);
+            orderRepository.save(order);
 
             Order updated = orderService.updateStatus(orderId, order.getRestaurantId(), "CANCELLED", userId, role);
             return ResponseEntity.ok(Map.of("success", true,

@@ -40,6 +40,7 @@ class OrderTenantIsolationTest {
     @MockBean JwtTokenProvider jwtTokenProvider;
     @MockBean UserRepository userRepository;
     @MockBean AuditService auditService;
+    @MockBean com.savorystay.repository.OrderRepository orderRepository;
 
     /** Authenticate the request as a given role/user/restaurant via a mock JWT. */
     private void authenticateAs(String username, String role, String userId, String restaurantId) {

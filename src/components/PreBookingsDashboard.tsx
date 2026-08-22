@@ -42,6 +42,8 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
   const [notificationStatusMsg, setNotificationStatusMsg] = useState<string | null>(null);
   const [production, setProduction] = useState<KitchenProductionItem[]>([]);
   const [delayedOrders, setDelayedOrders] = useState<DelayedOrder[]>([]);
+  const [declineModalOrder, setDeclineModalOrder] = useState<Order | null>(null);
+  const [declineReason, setDeclineReason] = useState('');
 
   // Load kitchen production and delayed orders
   React.useEffect(() => {
@@ -60,14 +62,17 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
     loadKitchen();
   }, []);
 
-  const handleUpdateStatus = async (order: Order, newStatus: Order['orderStatus']) => {
+  const handleUpdateStatus = async (order: Order, newStatus: Order['orderStatus'], reason?: string) => {
     try {
       // Pass the order's restaurant so super admins (whose JWT has no
       // restaurant) can update any restaurant's order; regular staff stay
       // locked to their own restaurant server-side regardless.
-      await updateOrderStatus(order.id, newStatus, order.restaurantId || undefined);
+      await updateOrderStatus(order.id, newStatus, order.restaurantId || undefined, reason);
+      const refundMsg = (newStatus === 'DECLINED' || newStatus === 'CANCELLED') && order.paymentStatus === 'PAID'
+        ? ' A refund will be processed automatically.'
+        : '';
       setNotificationStatusMsg(
-        `🔔 Order ${order.orderNumber} → ${newStatus}. Multi-channel alerts dispatched (SSE, SMS, WhatsApp, Email)!`
+        `🔔 Order ${order.orderNumber} → ${newStatus}.${refundMsg}`
       );
       setTimeout(() => setNotificationStatusMsg(null), 6000);
       // Refresh orders list so the UI reflects the new status immediately
@@ -78,7 +83,7 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
   };
 
   const filteredOrders = orders.filter((ord) => {
-    if (ord.orderStatus === 'DECLINED') return false;
+    // Declined orders are shown in a separate tab
 
     const matchesStatus =
       statusFilter === 'ALL' ||
@@ -322,7 +327,10 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                       <>
                         {isManagerOrAbove && (
                           <button
-                            onClick={() => handleUpdateStatus(ord, 'DECLINED')}
+                            onClick={() => {
+                              setDeclineModalOrder(ord);
+                              setDeclineReason('');
+                            }}
                             className="px-3 py-1.5 border border-stone-700 text-stone-300 rounded-xl text-xs font-semibold hover:bg-stone-800 transition-colors cursor-pointer"
                           >
                             Decline
@@ -489,6 +497,46 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
           </div>
         </div>
       </div>
+      {/* Decline Reason Modal */}
+      {declineModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-stone-900 rounded-2xl p-6 w-full max-w-md mx-4 border border-stone-800 shadow-2xl">
+            <h3 className="text-lg font-bold text-stone-100 mb-2">Decline Order {declineModalOrder.orderNumber}</h3>
+            <p className="text-xs text-stone-400 mb-4">
+              Provide a reason so the customer understands why their order was declined.
+              A refund will be processed automatically if the order was paid.
+            </p>
+            <textarea
+              value={declineReason}
+              onChange={(e) => setDeclineReason(e.target.value)}
+              placeholder="e.g. Item out of stock, Kitchen at capacity, Restaurant closing early..."
+              className="w-full h-24 px-3 py-2 bg-stone-950 rounded-xl border border-stone-800 text-stone-200 text-xs placeholder-stone-500 focus:outline-none focus:border-amber-500 resize-none mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setDeclineModalOrder(null);
+                  setDeclineReason('');
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-stone-700 text-stone-300 text-xs font-semibold hover:bg-stone-800 transition-colors cursor-pointer"
+              >
+                Keep Order
+              </button>
+              <button
+                onClick={async () => {
+                  if (!declineModalOrder) return;
+                  await handleUpdateStatus(declineModalOrder, 'DECLINED');
+                  setDeclineModalOrder(null);
+                  setDeclineReason('');
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                Confirm Decline
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

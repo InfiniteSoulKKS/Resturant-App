@@ -24,7 +24,7 @@ export interface CartItem {
 
 export type PaymentMethod = 'UPI' | 'RAZORPAY' | 'CARD' | 'CASH' | 'MOCK';
 export type PaymentStatus = 'PENDING' | 'PROCESSING' | 'PAID' | 'FAILED';
-export type OrderStatus = 'NEW' | 'PREPARING' | 'PACKED_READY' | 'COMPLETED' | 'DECLINED';
+export type OrderStatus = 'NEW' | 'PREPARING' | 'PACKED_READY' | 'COMPLETED' | 'DECLINED' | 'CANCELLED';
 export type UserRole =
   | 'ROLE_CUSTOMER'
   | 'ROLE_CHEF'
@@ -115,6 +115,7 @@ export interface Order {
   createdAt: string;
   timestamp: number;
   notificationsSent?: string[]; // Log of notifications sent e.g., ["SMS", "WhatsApp", "Email"]
+  cancelReason?: string; // Reason for cancellation/decline
 }
 
 export interface Ingredient {

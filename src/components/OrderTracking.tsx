@@ -22,6 +22,14 @@ const STATUS_FLOW: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'COMPLETED', label: 'Completed', icon: <CheckCircle2 className="w-4 h-4" /> },
 ];
 
+/** Maps backend error codes to customer-friendly messages. */
+const ERROR_MESSAGES: Record<string, string> = {
+  ORDER_INVALID_TRANSITION: 'This order has already moved to another stage.',
+  AUTH_FORBIDDEN: "You don't have permission to perform this action.",
+  TENANT_ACCESS_DENIED: "You don't have permission to access this restaurant.",
+  RESOURCE_NOT_FOUND: 'Order not found.',
+};
+
 interface OrderTrackingProps {
   /** Registers a refresh callback that the app invokes on realtime order events. */
   liveUpdate: (handler: () => void) => void;
@@ -34,6 +42,8 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate, onReor
   const [isLoading, setIsLoading] = useState(true);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelMsg, setCancelMsg] = useState<string | null>(null);
+  const [cancelModalOrderId, setCancelModalOrderId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
 
   const loadOrders = () => {
     if (!getToken()) return;
@@ -114,7 +124,14 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate, onReor
               {isDeclined && (
                 <div className="flex items-center gap-2 mb-3 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold">
                   <AlertCircle className="w-4 h-4 shrink-0" />
-                  This order was declined.
+                  <span>This order was declined.{order.cancelReason ? ` Reason: ${order.cancelReason}` : ''}</span>
+                </div>
+              )}
+
+              {order.orderStatus === 'CANCELLED' && (
+                <div className="flex items-center gap-2 mb-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>This order has been cancelled.{order.cancelReason ? ` Reason: ${order.cancelReason}` : ''}</span>
                 </div>
               )}
 
@@ -186,28 +203,17 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate, onReor
               )}
 
               {/* Cancel button for NEW orders (not yet started by kitchen) */}
-              {!isDeclined && !isCompleted && order.orderStatus === 'NEW' && (
+              {!isDeclined && !isCompleted && order.orderStatus !== 'CANCELLED' && order.orderStatus === 'NEW' && (
                 <div className="mt-3">
                   <button
-                    onClick={async () => {
-                      if (!confirm('Cancel this order? This cannot be undone.')) return;
-                      setCancellingId(order.id);
-                      setCancelMsg(null);
-                      try {
-                        await cancelOrder(order.id, 'Cancelled by customer');
-                        setCancelMsg(`Order ${order.orderNumber} has been cancelled.`);
-                        loadOrders();
-                      } catch (e: any) {
-                        setCancelMsg(e?.message || 'Failed to cancel order');
-                      } finally {
-                        setCancellingId(null);
-                        setTimeout(() => setCancelMsg(null), 4000);
-                      }
+                    onClick={() => {
+                      setCancelModalOrderId(order.id);
+                      setCancelReason('');
                     }}
                     disabled={cancellingId === order.id}
                     className="px-4 py-2 rounded-xl border border-rose-700/50 text-rose-400 hover:bg-rose-500/10 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
                   >
-                    {cancellingId === order.id ? 'Cancelling...' : 'Cancel Order'}
+                    Cancel Order
                   </button>
                 </div>
               )}
@@ -241,6 +247,60 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate, onReor
           );
         })}
       </div>
+
+      {/* Cancel Reason Modal */}
+      {cancelModalOrderId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-stone-900 rounded-2xl p-6 w-full max-w-md mx-4 border border-stone-800 shadow-2xl">
+            <h3 className="text-lg font-bold text-stone-100 mb-2">Cancel Order</h3>
+            <p className="text-xs text-stone-400 mb-4">
+              Please provide a reason for cancellation. This helps the restaurant improve their service.
+            </p>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="e.g. Changed my mind, Found a better option, Duplicate order..."
+              className="w-full h-24 px-3 py-2 bg-stone-950 rounded-xl border border-stone-800 text-stone-200 text-xs placeholder-stone-500 focus:outline-none focus:border-amber-500 resize-none mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setCancelModalOrderId(null);
+                  setCancelReason('');
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-stone-700 text-stone-300 text-xs font-semibold hover:bg-stone-800 transition-colors cursor-pointer"
+              >
+                Keep Order
+              </button>
+              <button
+                onClick={async () => {
+                  const orderId = cancelModalOrderId;
+                  if (!orderId) return;
+                  setCancellingId(orderId);
+                  setCancelMsg(null);
+                  setCancelModalOrderId(null);
+                  try {
+                    await cancelOrder(orderId, cancelReason || 'Cancelled by customer');
+                    const order = orders.find(o => o.id === orderId);
+                    setCancelMsg(`Order ${order?.orderNumber || ''} has been cancelled. A refund will be processed if applicable.`);
+                    loadOrders();
+                  } catch (e: any) {
+                    setCancelMsg(ERROR_MESSAGES[e?.code] || e?.message || 'Failed to cancel order');
+                  } finally {
+                    setCancellingId(null);
+                    setCancelReason('');
+                    setTimeout(() => setCancelMsg(null), 5000);
+                  }
+                }}
+                disabled={cancellingId === cancelModalOrderId}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {cancellingId === cancelModalOrderId ? 'Cancelling...' : 'Confirm Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

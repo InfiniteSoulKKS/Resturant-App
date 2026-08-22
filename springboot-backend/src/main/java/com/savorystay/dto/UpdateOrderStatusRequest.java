@@ -10,5 +10,8 @@ public record UpdateOrderStatusRequest(
         @NotBlank(message = "status is required")
         String status,
 
-        String restaurantId) {
+        String restaurantId,
+
+        /** Reason for cancel/decline — preserved on the order for customer visibility. */
+        String reason) {
 }

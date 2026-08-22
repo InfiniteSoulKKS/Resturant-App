@@ -575,10 +575,10 @@ export async function getRestaurantOrders(restaurantId?: string): Promise<Order[
   return (data.orders || []).map(parseOrder);
 }
 
-export async function updateOrderStatus(orderId: string, status: string, restaurantId?: string): Promise<Order> {
+export async function updateOrderStatus(orderId: string, status: string, restaurantId?: string, reason?: string): Promise<Order> {
   const res = await authenticatedFetch('/api/v1/orders/status', {
     method: 'POST',
-    body: JSON.stringify({ orderId, status, restaurantId }),
+    body: JSON.stringify({ orderId, status, restaurantId, ...(reason ? { reason } : {}) }),
   });
   const data = await readJson<{ success: boolean; order: any }>(res);
   return parseOrder(data.order);

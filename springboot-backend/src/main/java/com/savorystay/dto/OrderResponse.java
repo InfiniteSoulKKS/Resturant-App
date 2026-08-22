@@ -25,6 +25,8 @@ public record OrderResponse(
         String paymentStatus,
         String paymentMethod,
         String orderStatus,
+        String cancelReason,
+        String cancelledBy,
         LocalDateTime createdAt,
         List<OrderItemResponse> items) {
 
@@ -46,6 +48,8 @@ public record OrderResponse(
                 o.getPaymentStatus(),
                 o.getPaymentMethod(),
                 o.getOrderStatus(),
+                o.getCancelReason(),
+                o.getCancelledBy(),
                 o.getCreatedAt(),
                 List.of());
     }
@@ -69,6 +73,8 @@ public record OrderResponse(
                 o.getPaymentStatus(),
                 o.getPaymentMethod(),
                 o.getOrderStatus(),
+                o.getCancelReason(),
+                o.getCancelledBy(),
                 o.getCreatedAt(),
                 items == null ? List.of() : items.stream().map(OrderItemResponse::from).toList());
     }

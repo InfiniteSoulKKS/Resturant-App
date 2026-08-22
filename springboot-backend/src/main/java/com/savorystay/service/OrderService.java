@@ -701,7 +701,11 @@ public class OrderService {
         if ("CANCELLED".equals(newStatus) || "DECLINED".equals(newStatus)) {
             order.setCancelledBy(actorUserId);
             order.setCancelledAt(java.time.LocalDateTime.now());
-            order.setCancelReason("CANCELLED".equals(newStatus) ? "Cancelled by " + role : "Declined by " + role);
+            // Preserve user-provided reason if available, otherwise use default
+            String existingReason = order.getCancelReason();
+            if (existingReason == null || existingReason.isBlank()) {
+                order.setCancelReason("CANCELLED".equals(newStatus) ? "Cancelled by " + role : "Declined by " + role);
+            }
         }
 
         order.setOrderStatus(newStatus);
@@ -721,6 +725,25 @@ public class OrderService {
 
             // P0.9: Release table capacity reservation
             releaseTableReservationForOrder(order, restaurantId);
+
+            // Auto-refund for PAID orders: initiate refund automatically
+            if ("PAID".equals(order.getPaymentStatus()) || "REFUND_PENDING".equals(order.getPaymentStatus())) {
+                try {
+                    // Check if a non-failed refund already exists
+                    List<Refund> existingRefunds = refundRepository.findByOrderId(orderId);
+                    boolean hasActiveRefund = existingRefunds.stream()
+                            .anyMatch(r -> !"FAILED".equals(r.getRefundStatus()));
+                    if (!hasActiveRefund) {
+                        String refundReason = "CANCELLED".equals(newStatus)
+                                ? "Order cancelled" : "Order declined by restaurant";
+                        initiateRefund(orderId, actorUserId, role, restaurantId, refundReason);
+                        log.info("Auto-refund initiated for {} order {}", newStatus.toLowerCase(), orderId);
+                    }
+                } catch (Exception e) {
+                    // Refund failure must not block the cancellation/decline
+                    log.warn("Failed to auto-initiate refund for order {}: {}", orderId, e.getMessage());
+                }
+            }
         }
 
         // Audit trail
