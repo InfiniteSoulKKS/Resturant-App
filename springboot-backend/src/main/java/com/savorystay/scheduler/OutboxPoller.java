@@ -13,25 +13,19 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Transactional Outbox → Kafka publisher.
  *
- * Reads pending events (published_at IS NULL, status ≠ FAILED) and publishes
- * each one to its Kafka topic ({@link KafkaEventPublisher#topicFor}). The Kafka
- * consumers then dispatch real-time notifications: Gmail emails, Twilio
- * SMS/WhatsApp and in-app SSE pushes.
+ * P0.24: Uses row-level locking (locked_at/locked_by) via repository methods
+ * to prevent the same event from being processed by multiple concurrent poll cycles.
  *
  * Each event is published in its OWN transaction so one failing publish rolls
- * back only itself (published_at stays NULL → retried on the next poll) while
- * other events in the batch commit independently. This yields at-least-once
- * delivery — no notification is ever lost.
+ * back only itself while other events commit independently. This yields
+ * at-least-once delivery — no notification is ever lost.
  *
- * <b>Retry safety:</b> After {@link #MAX_RETRIES} consecutive failures an event
- * is marked {@code status=FAILED} so the poller skips it permanently. This
- * prevents infinite retry loops when Kafka is down.
- *
- * Requires Kafka running locally: {@code docker compose up -d}.
+ * Consumers MUST be idempotent (P0.23).
  */
 @Slf4j
 @Component
@@ -45,27 +39,28 @@ public class OutboxPoller {
     @Value("${app.kafka.enabled:true}")
     private boolean kafkaEnabled;
 
-    /** Stop retrying after this many consecutive failures (3 × 3s = 9s back-off). */
     private static final int MAX_RETRIES = 3;
+    private final String instanceId = UUID.randomUUID().toString().substring(0, 8);
 
     @Scheduled(fixedDelay = 3_000, initialDelay = 5_000)
     public void pollAndPublish() {
         if (!kafkaEnabled) return;
 
-        List<OutboxEvent> pending = outboxEventRepository.findPendingEvents();
-        if (pending.isEmpty()) return;
+        // P0.24: Claim pending events with row locking to prevent duplicate processing
+        List<OutboxEvent> claimed = claimPendingEvents();
+        if (claimed.isEmpty()) return;
 
-        log.info("[OUTBOX] Publishing {} pending event(s) to Kafka", pending.size());
-        for (OutboxEvent event : pending) {
+        log.info("[OUTBOX] Publishing {} claimed event(s) to Kafka (instance: {})", claimed.size(), instanceId);
+        for (OutboxEvent event : claimed) {
             try {
-                // Per-event transaction boundary: a failed Kafka publish rolls back
-                // this event only and it is retried on the next poll.
                 TransactionTemplate tx = new TransactionTemplate(transactionManager);
                 tx.executeWithoutResult(status -> {
                     publish(event);
                     event.setPublishedAt(LocalDateTime.now());
                     event.setStatus("PUBLISHED");
                     event.setRetryCount(event.getRetryCount() + 1);
+                    event.setLockedAt(null);
+                    event.setLockedBy(null);
                     outboxEventRepository.save(event);
                 });
             } catch (Exception e) {
@@ -73,34 +68,48 @@ public class OutboxPoller {
                 log.error("[OUTBOX] Failed to publish event {} ({}) attempt {}/{}, error: {}",
                         event.getId(), event.getEventType(), nextRetry, MAX_RETRIES, e.getMessage());
 
-                // Mark as permanently failed after exhausting retries
-                if (nextRetry >= MAX_RETRIES) {
-                    try {
-                        TransactionTemplate tx = new TransactionTemplate(transactionManager);
-                        tx.executeWithoutResult(status -> {
-                            event.setRetryCount(nextRetry);
+                try {
+                    TransactionTemplate tx = new TransactionTemplate(transactionManager);
+                    tx.executeWithoutResult(status -> {
+                        event.setRetryCount(nextRetry);
+                        event.setLockedAt(null);
+                        event.setLockedBy(null);
+                        if (nextRetry >= MAX_RETRIES) {
                             event.setStatus("FAILED");
                             event.setFailedAt(LocalDateTime.now());
-                            outboxEventRepository.save(event);
-                        });
-                        log.warn("[OUTBOX] Event {} ({}) permanently FAILED after {} retries —不会再 retry",
-                                event.getId(), event.getEventType(), nextRetry);
-                    } catch (Exception saveEx) {
-                        log.error("[OUTBOX] Failed to mark event as FAILED: {}", saveEx.getMessage());
-                    }
-                } else {
-                    // Increment retry count so next poll knows how far along we are
-                    try {
-                        TransactionTemplate tx = new TransactionTemplate(transactionManager);
-                        tx.executeWithoutResult(status -> {
-                            event.setRetryCount(nextRetry);
-                            outboxEventRepository.save(event);
-                        });
-                    } catch (Exception saveEx) {
-                        log.error("[OUTBOX] Failed to increment retry count: {}", saveEx.getMessage());
-                    }
+                            log.warn("[OUTBOX] Event {} ({}) permanently FAILED after {} retries",
+                                    event.getId(), event.getEventType(), nextRetry);
+                        }
+                        outboxEventRepository.save(event);
+                    });
+                } catch (Exception saveEx) {
+                    log.error("[OUTBOX] Failed to update retry state: {}", saveEx.getMessage());
                 }
             }
+        }
+    }
+
+    /**
+     * Atomically claim pending events using repository-level locking.
+     * First unlocks stale events from crashed instances, then claims fresh ones.
+     */
+    private List<OutboxEvent> claimPendingEvents() {
+        try {
+            TransactionTemplate tx = new TransactionTemplate(transactionManager);
+            return tx.execute(status -> {
+                // Unlock stale events from crashed instances (locked > 30s ago)
+                outboxEventRepository.unlockStaleEvents(LocalDateTime.now().minusSeconds(30));
+
+                // Claim fresh pending events for this instance
+                int claimed = outboxEventRepository.claimPendingEvents(LocalDateTime.now(), instanceId);
+                if (claimed == 0) return List.of();
+
+                // Fetch the claimed events
+                return outboxEventRepository.findClaimedEvents(instanceId);
+            });
+        } catch (Exception e) {
+            log.warn("[OUTBOX] Failed to claim events: {}", e.getMessage());
+            return List.of();
         }
     }
 
@@ -109,16 +118,11 @@ public class OutboxPoller {
         if (topic == null) {
             if ("inventory.stock.decremented".equals(event.getEventType())
                     || "inventory.stock.low".equals(event.getEventType())) {
-                // High-volume operational noise — not fanned out to Kafka, just acknowledged.
                 log.debug("[OUTBOX] Acknowledging {} for aggregate {} without Kafka",
                         event.getEventType(), event.getAggregateId());
-                // Mark as published since no Kafka topic is needed
-                event.setPublishedAt(LocalDateTime.now());
-                event.setStatus("PUBLISHED");
-                outboxEventRepository.save(event);
-            } else {
-                log.warn("[OUTBOX] Unknown event type, no Kafka topic: {}", event.getEventType());
+                return;
             }
+            log.warn("[OUTBOX] Unknown event type, no Kafka topic: {}", event.getEventType());
             return;
         }
         eventPublisher.publish(topic, event);

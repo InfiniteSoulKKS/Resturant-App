@@ -140,9 +140,9 @@ class OrderStateMachineTest {
 
     @Test
     void validateThrowsOnInvalidTransition() {
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        com.savorystay.config.OrderStateException ex = assertThrows(com.savorystay.config.OrderStateException.class, () ->
                 OrderStateMachine.validate("COMPLETED", "PREPARING", "ROLE_MANAGER"));
-        assertTrue(ex.getMessage().contains("cannot transition"));
+        assertTrue(ex.getMessage().contains("cannot move"));
     }
 
     @Test

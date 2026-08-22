@@ -1,5 +1,7 @@
 package com.savorystay.common;
 
+import com.savorystay.config.OrderStateException;
+
 import java.util.Map;
 import java.util.Set;
 
@@ -94,8 +96,8 @@ public final class OrderStateMachine {
      */
     public static void validate(String from, String to, String role) {
         if (!canTransition(from, to)) {
-            throw new IllegalArgumentException(
-                    "Order cannot transition from " + from + " to " + to);
+            throw new OrderStateException(
+                    "Order cannot move from " + from + " to " + to);
         }
         if (!canRolePerform(from, to, role)) {
             throw new SecurityException(

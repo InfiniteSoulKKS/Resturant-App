@@ -5,13 +5,7 @@ import com.savorystay.entity.MenuItem;
 import com.savorystay.entity.Order;
 import com.savorystay.entity.Payment;
 import com.savorystay.entity.Restaurant;
-import com.savorystay.repository.MenuItemRepository;
-import com.savorystay.repository.OrderItemRepository;
-import com.savorystay.repository.OrderRepository;
-import com.savorystay.repository.OrderStatusHistoryRepository;
-import com.savorystay.repository.PaymentRepository;
-import com.savorystay.repository.RefundRepository;
-import com.savorystay.repository.RestaurantRepository;
+import com.savorystay.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,6 +47,9 @@ class OrderServiceTenantIsolationTest {
     @Mock AuditService auditService;
     @Mock RefundRepository refundRepository;
     @Mock RealtimeService realtimeService;
+    @Mock PlateCapacityRepository plateCapacityRepository;
+    @Mock TableSlotCapacityRepository tableSlotCapacityRepository;
+    @Mock RestaurantSettingsRepository restaurantSettingsRepository;
 
     private OrderService service;
 
@@ -62,7 +59,8 @@ class OrderServiceTenantIsolationTest {
                 orderRepository, orderItemRepository, menuItemRepository,
                 orderStatusHistoryRepository, paymentRepository, menuService,
                 outboxService, ingredientService, availabilityService, restaurantRepository,
-                customerRestaurantService, auditService, refundRepository, realtimeService);
+                customerRestaurantService, auditService, refundRepository, realtimeService,
+                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository);
     }
 
     // ==================== CROSS-RESTAURANT PAYMENT ====================

@@ -51,6 +51,14 @@ public class OutboxEvent {
     @Builder.Default
     private String status = "PENDING";
 
+    /** P0.24: Row lock timestamp — prevents duplicate processing by concurrent pollers. */
+    @Column(name = "locked_at")
+    private LocalDateTime lockedAt;
+
+    /** P0.24: Which poller instance holds the lock. */
+    @Column(name = "locked_by", length = 100)
+    private String lockedBy;
+
     /** Timestamp when the event was permanently abandoned (exceeded max retries). */
     @Column(name = "failed_at")
     private LocalDateTime failedAt;

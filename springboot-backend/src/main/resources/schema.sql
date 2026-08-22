@@ -44,8 +44,10 @@ CREATE TABLE IF NOT EXISTS menu_items (
     is_veg BOOLEAN DEFAULT TRUE,
     spice_level VARCHAR(20) DEFAULT 'Medium',
     prep_minutes INT,
+    daily_plate_count INT, -- max plates per day; NULL = unlimited
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+    FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE,
+    INDEX idx_menu_restaurant (restaurant_id)
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
@@ -102,8 +104,10 @@ CREATE TABLE IF NOT EXISTS orders (
     FOREIGN KEY (restaurant_id) REFERENCES restaurants(id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
     -- Hot query paths: "my orders" (user) and kitchen boards (restaurant)
-    INDEX idx_orders_user (user_id),
-    INDEX idx_orders_restaurant (restaurant_id)
+    INDEX idx_orders_user_created (user_id, created_at),
+    INDEX idx_orders_restaurant_status (restaurant_id, order_status),
+    INDEX idx_orders_restaurant_created (restaurant_id, created_at),
+    INDEX idx_orders_restaurant_pickup (restaurant_id, pickup_time)
 );
 
 CREATE TABLE IF NOT EXISTS order_items (
@@ -114,7 +118,8 @@ CREATE TABLE IF NOT EXISTS order_items (
     quantity INT NOT NULL,
     unit_price DECIMAL(10, 2) NOT NULL,
     notes VARCHAR(255),
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    INDEX idx_order_items_menu_created (menu_item_id, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS payments (
@@ -128,7 +133,8 @@ CREATE TABLE IF NOT EXISTS payments (
     client_secret VARCHAR(255),
     gateway_raw_response TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    INDEX idx_payments_order (order_id)
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
@@ -182,9 +188,11 @@ CREATE TABLE IF NOT EXISTS outbox_event (
     published_at TIMESTAMP NULL,
     retry_count INT NOT NULL DEFAULT 0,
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING, PUBLISHED, FAILED
+    locked_at TIMESTAMP NULL,
+    locked_by VARCHAR(100) NULL,
     failed_at TIMESTAMP NULL,
     -- The OutboxPoller scans unpublished rows every 3s
-    INDEX idx_outbox_unpublished (published_at)
+    INDEX idx_outbox_status_next (status, locked_at)
 );
 
 -- Dead-letter audit: notifications that exhausted Kafka retries and were sent
@@ -211,9 +219,6 @@ CREATE TABLE IF NOT EXISTS price_rule (
 );
 
 -- Weekly operating hours per restaurant day (1=Monday .. 7=Sunday).
--- closed=true is a full weekly holiday; a partial day (e.g. open till 14:00)
--- is modeled via close_time. Any closed period on a day blocks pre-orders for
--- that day entirely; same-day PICKUP/DINE_IN are unaffected.
 CREATE TABLE IF NOT EXISTS restaurant_operating_hours (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     restaurant_id VARCHAR(64) NOT NULL,
@@ -225,8 +230,7 @@ CREATE TABLE IF NOT EXISTS restaurant_operating_hours (
     FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
 );
 
--- Per-restaurant pre-order rules: orders for date D close at cutoff_time on D-1
--- (business timezone); customers can order up to advance_days ahead.
+-- Per-restaurant pre-order rules
 CREATE TABLE IF NOT EXISTS preorder_settings (
     restaurant_id VARCHAR(64) PRIMARY KEY,
     cutoff_time TIME NOT NULL DEFAULT '09:00:00',
@@ -235,7 +239,6 @@ CREATE TABLE IF NOT EXISTS preorder_settings (
 );
 
 -- Recurring weekly availability: which weekdays a dish can be pre-ordered.
--- No rows = dish available every day (backward compatible).
 CREATE TABLE IF NOT EXISTS dish_availability (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     restaurant_id VARCHAR(64) NOT NULL,
@@ -246,7 +249,6 @@ CREATE TABLE IF NOT EXISTS dish_availability (
 );
 
 -- Manager overrides for a specific date + dish (OPEN / CLOSE).
--- Precedence: CLOSE > OPEN > weekly schedule; restaurant closure always blocks.
 CREATE TABLE IF NOT EXISTS dish_slot_override (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     restaurant_id VARCHAR(64) NOT NULL,
@@ -258,7 +260,6 @@ CREATE TABLE IF NOT EXISTS dish_slot_override (
 );
 
 -- Customer–restaurant membership: tracks which restaurants a customer belongs to.
--- A single customer account may be a member of multiple restaurants.
 CREATE TABLE IF NOT EXISTS customer_restaurant (
     id VARCHAR(64) PRIMARY KEY,
     customer_id VARCHAR(64) NOT NULL,
@@ -267,7 +268,8 @@ CREATE TABLE IF NOT EXISTS customer_restaurant (
     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_customer_restaurant (customer_id, restaurant_id),
     FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+    FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE,
+    INDEX idx_customer_restaurant_customer (customer_id, restaurant_id)
 );
 
 CREATE TABLE IF NOT EXISTS refunds (
@@ -287,7 +289,6 @@ CREATE TABLE IF NOT EXISTS refunds (
     error_message VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (payment_id) REFERENCES payments(transaction_id) ON DELETE CASCADE,
     INDEX idx_refunds_order (order_id),
     INDEX idx_refunds_restaurant (restaurant_id)
 );
@@ -316,9 +317,44 @@ CREATE TABLE IF NOT EXISTS otp_requests (
     otp_code VARCHAR(10) NOT NULL,
     channel VARCHAR(20) NOT NULL,
     status VARCHAR(20) DEFAULT 'PENDING',
-    purpose VARCHAR(20) DEFAULT 'REGISTRATION', -- LOGIN (validated account send) vs REGISTRATION
+    purpose VARCHAR(20) DEFAULT 'REGISTRATION', -- LOGIN vs REGISTRATION
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     verified_at TIMESTAMP,
     attempt_count INT DEFAULT 0
+);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- P0.8: Plate capacity — atomic daily plate limit reservations
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS plate_capacity (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    menu_item_id VARCHAR(64) NOT NULL,
+    restaurant_id VARCHAR(64) NOT NULL,
+    business_date DATE NOT NULL,
+    capacity INT NOT NULL DEFAULT 0,
+    reserved_count INT NOT NULL DEFAULT 0,
+    version BIGINT NOT NULL DEFAULT 0, -- optimistic lock for concurrent reservations
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    UNIQUE KEY uk_plate_capacity (menu_item_id, business_date),
+    INDEX idx_plate_capacity_restaurant_date (restaurant_id, business_date)
+);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- P0.9: Table slot capacity — atomic table reservations per time slot
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS table_slot_capacity (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    restaurant_id VARCHAR(64) NOT NULL,
+    business_date DATE NOT NULL,
+    time_slot VARCHAR(100) NOT NULL,
+    table_type VARCHAR(30) NOT NULL,       -- "2-Seater", "4-Seater", "6-Seater"
+    total_capacity INT NOT NULL DEFAULT 0,  -- how many tables of this type exist
+    reserved_count INT NOT NULL DEFAULT 0,  -- how many are booked
+    version BIGINT NOT NULL DEFAULT 0,      -- optimistic lock
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    UNIQUE KEY uk_table_slot_capacity (restaurant_id, business_date, time_slot, table_type),
+    INDEX idx_table_slot_restaurant_date (restaurant_id, business_date)
 );

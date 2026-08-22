@@ -9,8 +9,7 @@ import com.savorystay.repository.OrderItemRepository;
 import com.savorystay.repository.OrderRepository;
 import com.savorystay.repository.OrderStatusHistoryRepository;
 import com.savorystay.repository.PaymentRepository;
-import com.savorystay.repository.RefundRepository;
-import com.savorystay.repository.RestaurantRepository;
+import com.savorystay.repository.*;
 import com.savorystay.service.AuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +53,9 @@ class OrderServiceSuspensionTest {
     @Mock AuditService auditService;
     @Mock RefundRepository refundRepository;
     @Mock RealtimeService realtimeService;
+    @Mock PlateCapacityRepository plateCapacityRepository;
+    @Mock TableSlotCapacityRepository tableSlotCapacityRepository;
+    @Mock RestaurantSettingsRepository restaurantSettingsRepository;
 
     private OrderService service;
 
@@ -63,7 +65,8 @@ class OrderServiceSuspensionTest {
                 orderRepository, orderItemRepository, menuItemRepository,
                 orderStatusHistoryRepository, paymentRepository, menuService,
                 outboxService, ingredientService, availabilityService, restaurantRepository,
-                customerRestaurantService, auditService, refundRepository, realtimeService);
+                customerRestaurantService, auditService, refundRepository, realtimeService,
+                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository);
     }
 
     private List<OrderItemRequest> items() {
@@ -356,10 +359,10 @@ class OrderServiceSuspensionTest {
                 .build();
         when(orderRepository.findByIdAndRestaurantId(order.getId(), REST)).thenReturn(Optional.of(order));
 
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        com.savorystay.config.OrderStateException ex = assertThrows(com.savorystay.config.OrderStateException.class, () ->
                 service.updateStatus(order.getId(), REST, "CANCELLED", "USR_MGR", "ROLE_MANAGER"));
 
-        assertTrue(ex.getMessage().contains("cannot transition"));
+        assertTrue(ex.getMessage().contains("cannot move"));
     }
 
     @Test

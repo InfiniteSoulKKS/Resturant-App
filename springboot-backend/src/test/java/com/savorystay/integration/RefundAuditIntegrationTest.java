@@ -448,7 +448,7 @@ class RefundAuditIntegrationTest {
     void terminalStateProtection() {
         Order order = createOrder("CANCELLED", "PENDING", "CASH");
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(com.savorystay.config.OrderStateException.class,
                 () -> orderService.updateStatus(
                         order.getId(), REST_ID, "PREPARING", USER_MGR, "ROLE_MANAGER"));
     }

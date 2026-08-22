@@ -3,10 +3,7 @@ package com.savorystay.service;
 import com.savorystay.entity.Order;
 import com.savorystay.entity.Payment;
 import com.savorystay.entity.Refund;
-import com.savorystay.repository.OrderItemRepository;
-import com.savorystay.repository.OrderRepository;
-import com.savorystay.repository.PaymentRepository;
-import com.savorystay.repository.RefundRepository;
+import com.savorystay.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,6 +44,9 @@ class RefundServiceTest {
     @Mock AuditService auditService;
     @Mock RefundRepository refundRepository;
     @Mock RealtimeService realtimeService;
+    @Mock PlateCapacityRepository plateCapacityRepository;
+    @Mock TableSlotCapacityRepository tableSlotCapacityRepository;
+    @Mock RestaurantSettingsRepository restaurantSettingsRepository;
 
     private OrderService service;
 
@@ -56,7 +56,8 @@ class RefundServiceTest {
                 orderRepository, orderItemRepository, menuItemRepository,
                 orderStatusHistoryRepository, paymentRepository, menuService,
                 outboxService, ingredientService, availabilityService, restaurantRepository,
-                customerRestaurantService, auditService, refundRepository, realtimeService);
+                customerRestaurantService, auditService, refundRepository, realtimeService,
+                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository);
     }
 
     private Order order(String status, String paymentStatus, String restaurantId) {

@@ -1,6 +1,8 @@
 package com.savorystay.controller;
 
+import com.savorystay.config.OrderStateException;
 import com.savorystay.dto.ConfirmPaymentRequest;
+import com.savorystay.dto.ErrorResponse;
 import com.savorystay.dto.OrderItemResponse;
 import com.savorystay.dto.OrderResponse;
 import com.savorystay.dto.PlaceOrderRequest;
@@ -41,12 +43,10 @@ public class OrderController {
             String role = TenantContext.getRole();
 
             if (role != null && !RoleUtils.hasRole(role, RoleUtils.CUSTOMER)) {
-                return ResponseEntity.status(403).body(Map.of("success", false, "message",
-                        "Only customer accounts can place orders. Staff accounts manage the kitchen instead."));
+                return ResponseEntity.status(403).body(
+                        ErrorResponse.forbidden("Only customer accounts can place orders."));
             }
 
-            // Tenant isolation: staff are locked to their own restaurant; only
-            // customers and super admins may choose an arbitrary restaurantId.
             String restaurantId;
             if (role != null && !"ROLE_CUSTOMER".equals(role) && !"ROLE_SUPER_ADMIN".equals(role)) {
                 restaurantId = TenantContext.getRestaurantId();
@@ -54,7 +54,8 @@ public class OrderController {
                 restaurantId = req.restaurantId();
             }
             if (restaurantId == null || restaurantId.isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "restaurantId is required"));
+                return ResponseEntity.badRequest().body(
+                        ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "restaurantId is required"));
             }
             String customerName = req.customerName() != null ? req.customerName() : "Guest";
             String orderType = req.orderType() != null ? req.orderType() : "PICKUP";
@@ -67,19 +68,15 @@ public class OrderController {
 
             return ResponseEntity.ok(Map.of("success", true, "order", OrderResponse.from(order, orderService.itemsFor(order.getId())),
                     "message", "Order placed successfully"));
+        } catch (IllegalArgumentException e) {
+            String code = resolveErrorCode(e.getMessage());
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(code, e.getMessage()));
         } catch (Exception e) {
             log.error("Error placing order: {}", e.getMessage(), e);
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(500).body(ErrorResponse.serverError("Failed to place order. Please try again."));
         }
     }
 
-    /**
-     * Server-authoritative payment confirmation.
-     * Body: { "amount": 840, "gateway": "UPI" } (amount verified against the order total)
-     * Only the order owner or the restaurant's staff may confirm payment.
-     *
-     * P0 FIX: Uses orderRepository.findByIdAndRestaurantId() for tenant safety.
-     */
     @PostMapping("/{orderId}/payment")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> confirmPayment(@PathVariable String orderId, @Valid @RequestBody ConfirmPaymentRequest req) {
@@ -91,45 +88,35 @@ public class OrderController {
             return ResponseEntity.ok(Map.of("success", true, "order", OrderResponse.from(updated, orderService.itemsFor(orderId)),
                     "message", "Payment confirmed"));
         } catch (SecurityException e) {
-            return ResponseEntity.status(403).body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(403).body(ErrorResponse.forbidden(e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            String code = resolveErrorCode(e.getMessage());
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(code, e.getMessage()));
         } catch (Exception e) {
             log.error("Error confirming payment for order {}: {}", orderId, e.getMessage(), e);
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(500).body(ErrorResponse.serverError("Payment could not be confirmed. You can retry."));
         }
     }
 
-    /**
-     * Staff-only cash payment completion.
-     * POST /api/v1/orders/{orderId}/mark-paid
-     *
-     * P0 IMPLEMENTATION: Allows staff to mark CASH orders as paid when the customer
-     * pays at the counter. Only CASH/PENDING orders can be marked paid.
-     * Only restaurant staff (manager/admin/super-admin) can perform this action.
-     * Cross-tenant access is prevented via restaurantId validation.
-     */
     @PostMapping("/{orderId}/mark-paid")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> markPaid(@PathVariable String orderId) {
         try {
             String restaurantId = TenantContext.resolveRestaurantScope(null);
             if (restaurantId == null) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No restaurant scope"));
+                return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "No restaurant scope"));
             }
-            String userId = TenantContext.getUserId();
-            String role = TenantContext.getRole();
-
-            Order updated = orderService.markCashPaid(orderId, restaurantId, userId, role);
-
+            Order updated = orderService.markCashPaid(orderId, restaurantId, TenantContext.getUserId(), TenantContext.getRole());
             return ResponseEntity.ok(Map.of("success", true,
                     "order", OrderResponse.from(updated, orderService.itemsFor(orderId)),
                     "message", "Cash payment recorded — order marked PAID"));
         } catch (SecurityException e) {
-            return ResponseEntity.status(403).body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(403).body(ErrorResponse.forbidden(e.getMessage()));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, e.getMessage()));
         } catch (Exception e) {
             log.error("Error marking cash paid for order {}: {}", orderId, e.getMessage(), e);
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(500).body(ErrorResponse.serverError("Failed to record payment."));
         }
     }
 
@@ -138,7 +125,7 @@ public class OrderController {
     public ResponseEntity<?> myOrders() {
         String userId = TenantContext.getUserId();
         if (userId == null) {
-            return ResponseEntity.status(401).body(Map.of("success", false, "message", "Unauthorized"));
+            return ResponseEntity.status(401).body(ErrorResponse.unauthorized("Unauthorized"));
         }
         List<Order> orders = orderService.ordersForCustomer(userId);
         Map<String, List<OrderItem>> itemsByOrder = orderService.itemsByOrderIds(orders.stream().map(Order::getId).toList());
@@ -148,15 +135,12 @@ public class OrderController {
         return ResponseEntity.ok(Map.of("success", true, "orders", dtos));
     }
 
-    /**
-     * Restaurant order queue — STAFF ONLY.
-     */
     @GetMapping
     @PreAuthorize("hasAnyRole('CHEF','MANAGER','ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> restaurantOrders(@RequestParam(required = false) String restaurantId) {
         restaurantId = TenantContext.resolveRestaurantScope(restaurantId);
         if (restaurantId == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No restaurant scope"));
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "No restaurant scope"));
         }
         List<Order> orders = orderService.ordersForRestaurant(restaurantId);
         Map<String, List<OrderItem>> itemsByOrder = orderService.itemsByOrderIds(orders.stream().map(Order::getId).toList());
@@ -176,7 +160,7 @@ public class OrderController {
 
         var orderOpt = orderService.getById(orderId);
         if (orderOpt.isEmpty()) {
-            return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+            return ResponseEntity.status(404).body(ErrorResponse.notFound("Order not found"));
         }
         Order order = orderOpt.get();
 
@@ -185,7 +169,7 @@ public class OrderController {
         boolean isStaff = role != null && !"ROLE_CUSTOMER".equals(role)
                 && scopeRestaurantId != null && scopeRestaurantId.equals(order.getRestaurantId());
         if (!isOwner && !isStaff && !isSuperAdmin) {
-            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Forbidden"));
+            return ResponseEntity.status(403).body(ErrorResponse.forbidden("You don't have permission to view this order."));
         }
 
         List<OrderItem> items = orderService.itemsFor(orderId);
@@ -199,28 +183,28 @@ public class OrderController {
         try {
             String restaurantId = TenantContext.resolveRestaurantScope(req.restaurantId());
             if (restaurantId == null) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No restaurant scope"));
+                return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "No restaurant scope"));
             }
             Order updated = orderService.updateStatus(
                     req.orderId(), restaurantId, req.status().toUpperCase(),
                     TenantContext.getUserId(), TenantContext.getRole());
             return ResponseEntity.ok(Map.of("success", true, "order", OrderResponse.from(updated, orderService.itemsFor(updated.getId())),
                     "message", "Status updated to " + updated.getOrderStatus()));
+        } catch (OrderStateException e) {
+            // P0.3: State machine violations → 409 Conflict
+            return ResponseEntity.status(409).body(ErrorResponse.conflict(
+                    ErrorResponse.ORDER_INVALID_TRANSITION, e.getMessage()));
         } catch (ObjectOptimisticLockingFailureException e) {
-            return ResponseEntity.status(409).body(Map.of("success", false, "message", "Stock changed concurrently. Please retry."));
+            return ResponseEntity.status(409).body(ErrorResponse.conflict(
+                    ErrorResponse.INVENTORY_RESERVATION_CONFLICT, "Stock changed concurrently. Please retry."));
         } catch (SecurityException e) {
-            return ResponseEntity.status(403).body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(403).body(ErrorResponse.forbidden(e.getMessage()));
         } catch (Exception e) {
             log.error("Error updating order status: {}", e.getMessage(), e);
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, e.getMessage()));
         }
     }
 
-    /**
-     * Add/update a kitchen note on an order item.
-     *
-     * P0 FIX: Verifies order belongs to the caller's restaurant.
-     */
     @PostMapping("/{orderId}/items/{itemId}/notes")
     @PreAuthorize("hasAnyRole('CHEF','MANAGER','ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> updateItemNotes(@PathVariable String orderId,
@@ -229,26 +213,19 @@ public class OrderController {
         try {
             String restaurantId = TenantContext.resolveRestaurantScope(null);
             if (restaurantId == null) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No restaurant scope"));
+                return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "No restaurant scope"));
             }
-
-            // Tenant isolation: verify the order belongs to this restaurant
             var order = orderService.getById(orderId);
             if (order.isEmpty() || !restaurantId.equals(order.get().getRestaurantId())) {
-                return ResponseEntity.status(403).body(Map.of("success", false, "message", "Order not found in this restaurant"));
+                return ResponseEntity.status(403).body(ErrorResponse.forbidden("Order not found in this restaurant"));
             }
-
-            String notes = body.getOrDefault("notes", "");
-            orderService.updateItemNotes(orderId, itemId, notes);
+            orderService.updateItemNotes(orderId, itemId, body.getOrDefault("notes", ""));
             return ResponseEntity.ok(Map.of("success", true, "message", "Notes updated"));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, e.getMessage()));
         }
     }
 
-    /**
-     * Initiate a refund for a paid order.
-     */
     @PostMapping("/{orderId}/refund")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> initiateRefund(@PathVariable String orderId,
@@ -263,32 +240,27 @@ public class OrderController {
             return ResponseEntity.ok(Map.of("success", true, "refund", refund,
                     "message", "Refund initiated — status: " + refund.getRefundStatus()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(403).body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(403).body(ErrorResponse.forbidden(e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            String code = e.getMessage() != null && e.getMessage().contains("refund") ? ErrorResponse.REFUND_ALREADY_EXISTS : ErrorResponse.VALIDATION_ERROR;
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(code, e.getMessage()));
         } catch (Exception e) {
             log.error("Error initiating refund for order {}: {}", orderId, e.getMessage(), e);
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(500).body(ErrorResponse.serverError("Failed to initiate refund."));
         }
     }
 
-    /**
-     * Audit trail for an order.
-     *
-     * P0 FIX: Verifies the order belongs to the caller's restaurant before returning audit data.
-     */
     @GetMapping("/{orderId}/audit")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> orderAudit(@PathVariable String orderId) {
         String restaurantId = TenantContext.resolveRestaurantScope(null);
         if (restaurantId == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No restaurant scope"));
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "No restaurant scope"));
         }
-
-        // Tenant isolation: verify the order belongs to this restaurant
         var order = orderService.getById(orderId);
         if (order.isEmpty() || !restaurantId.equals(order.get().getRestaurantId())) {
-            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Order not found in this restaurant"));
+            return ResponseEntity.status(403).body(ErrorResponse.forbidden("Order not found in this restaurant"));
         }
-
         var audit = auditService.getByEntity("ORDER", orderId);
         return ResponseEntity.ok(Map.of("success", true, "audit", audit));
     }
@@ -298,10 +270,9 @@ public class OrderController {
     public ResponseEntity<?> kitchenProduction(@RequestParam(required = false) String restaurantId) {
         restaurantId = TenantContext.resolveRestaurantScope(restaurantId);
         if (restaurantId == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No restaurant scope"));
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "No restaurant scope"));
         }
-        List<Map<String, Object>> production = orderService.getKitchenProduction(restaurantId);
-        return ResponseEntity.ok(Map.of("success", true, "production", production));
+        return ResponseEntity.ok(Map.of("success", true, "production", orderService.getKitchenProduction(restaurantId)));
     }
 
     @GetMapping("/kitchen/delayed")
@@ -309,19 +280,12 @@ public class OrderController {
     public ResponseEntity<?> delayedOrders(@RequestParam(required = false) String restaurantId) {
         restaurantId = TenantContext.resolveRestaurantScope(restaurantId);
         if (restaurantId == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No restaurant scope"));
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, "No restaurant scope"));
         }
         List<Map<String, Object>> delayed = orderService.getDelayedOrders(restaurantId);
         return ResponseEntity.ok(Map.of("success", true, "delayedOrders", delayed, "count", delayed.size()));
     }
 
-    /**
-     * Cancel an order. Customers can cancel their own NEW orders;
-     * staff can cancel any order in a cancellable state.
-     *
-     * P0 FIX: Delegates entirely to OrderStateMachine for transition validation.
-     * Removes duplicate state-checking logic that existed in this controller.
-     */
     @PostMapping("/{orderId}/cancel")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> cancelOrder(@PathVariable String orderId,
@@ -334,43 +298,56 @@ public class OrderController {
 
             var orderOpt = orderService.getById(orderId);
             if (orderOpt.isEmpty()) {
-                return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+                return ResponseEntity.status(404).body(ErrorResponse.notFound("Order not found"));
             }
             Order order = orderOpt.get();
 
-            // Tenant isolation: verify ownership or staff membership
             boolean isOwner = userId != null && userId.equals(order.getUserId());
             boolean isStaff = role != null && !"ROLE_CUSTOMER".equals(role)
                     && restaurantId != null && restaurantId.equals(order.getRestaurantId());
 
             if (!isOwner && !isStaff) {
-                return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not authorized to cancel this order"));
+                return ResponseEntity.status(403).body(ErrorResponse.forbidden("Not authorized to cancel this order"));
             }
-
-            // Customer restriction: only NEW orders can be cancelled by the owner
             if (isOwner && !"NEW".equals(order.getOrderStatus())) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message",
+                return ResponseEntity.badRequest().body(ErrorResponse.badRequest(
+                        ErrorResponse.ORDER_INVALID_TRANSITION,
                         "Customers can only cancel orders that have not started preparation"));
             }
 
-            // Delegate to OrderStateMachine for transition + role validation
-            // This replaces the duplicate state-checking logic that was here before.
             OrderStateMachine.validate(order.getOrderStatus(), "CANCELLED", role);
 
-            Order updated = orderService.updateStatus(
-                    orderId, order.getRestaurantId(), "CANCELLED",
-                    userId, role);
-
+            Order updated = orderService.updateStatus(orderId, order.getRestaurantId(), "CANCELLED", userId, role);
             return ResponseEntity.ok(Map.of("success", true,
                     "order", OrderResponse.from(updated, orderService.itemsFor(orderId)),
                     "message", "Order cancelled"));
+        } catch (OrderStateException e) {
+            return ResponseEntity.status(409).body(ErrorResponse.conflict(
+                    ErrorResponse.ORDER_INVALID_TRANSITION, e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(403).body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(403).body(ErrorResponse.forbidden(e.getMessage()));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.badRequest().body(ErrorResponse.badRequest(ErrorResponse.VALIDATION_ERROR, e.getMessage()));
         } catch (Exception e) {
             log.error("Error cancelling order {}: {}", orderId, e.getMessage(), e);
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.status(500).body(ErrorResponse.serverError("Failed to cancel order."));
         }
+    }
+
+    // ─── HELPERS ─────────────────────────────────────────────────
+
+    private static String resolveErrorCode(String message) {
+        if (message == null) return ErrorResponse.VALIDATION_ERROR;
+        String lower = message.toLowerCase();
+        if (lower.contains("plate") || lower.contains("sold out")) return ErrorResponse.PLATE_CAPACITY_EXCEEDED;
+        if (lower.contains("table") && lower.contains("available")) return ErrorResponse.TABLE_SLOT_FULL;
+        if (lower.contains("cutoff")) return ErrorResponse.PREORDER_CUTOFF_PASSED;
+        if (lower.contains("closed")) return ErrorResponse.PREORDER_RESTAURANT_CLOSED;
+        if (lower.contains("not available") || lower.contains("sold out")) return ErrorResponse.DISH_NOT_AVAILABLE;
+        if (lower.contains("payment") && lower.contains("amount")) return ErrorResponse.PAYMENT_AMOUNT_MISMATCH;
+        if (lower.contains("cash") && lower.contains("cannot")) return ErrorResponse.PAYMENT_FAILED;
+        if (lower.contains("not found")) return ErrorResponse.RESOURCE_NOT_FOUND;
+        if (lower.contains("not authorized") || lower.contains("forbidden")) return ErrorResponse.AUTH_FORBIDDEN;
+        return ErrorResponse.VALIDATION_ERROR;
     }
 }

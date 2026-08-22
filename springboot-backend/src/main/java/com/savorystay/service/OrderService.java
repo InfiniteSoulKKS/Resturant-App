@@ -1,42 +1,24 @@
 package com.savorystay.service;
 
 import com.savorystay.common.OrderStateMachine;
+import com.savorystay.config.OrderStateException;
 import com.savorystay.dto.OrderItemRequest;
-import com.savorystay.entity.MenuItem;
-import com.savorystay.entity.Order;
-import com.savorystay.entity.OrderItem;
-import com.savorystay.entity.OrderStatusHistory;
-import com.savorystay.entity.Payment;
-import com.savorystay.entity.Restaurant;
-import com.savorystay.repository.MenuItemRepository;
-import com.savorystay.repository.OrderItemRepository;
-import com.savorystay.repository.OrderRepository;
-import com.savorystay.repository.OrderStatusHistoryRepository;
-import com.savorystay.repository.PaymentRepository;
-import com.savorystay.repository.RestaurantRepository;
+import com.savorystay.entity.*;
+import com.savorystay.repository.*;
 import com.savorystay.security.RoleUtils;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import com.savorystay.entity.Refund;
-import com.savorystay.repository.RefundRepository;
-
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -57,19 +39,32 @@ public class OrderService {
     private final AuditService auditService;
     private final RefundRepository refundRepository;
     private final RealtimeService realtimeService;
+    private final PlateCapacityRepository plateCapacityRepository;
+    private final TableSlotCapacityRepository tableSlotCapacityRepository;
+    private final RestaurantSettingsRepository restaurantSettingsRepository;
 
     private static final List<String> FLOW = List.of("NEW", "PREPARING", "PACKED_READY", "COMPLETED");
 
-    /** Transitions a chef-only account is allowed to perform (cook + pack). */
-    private static final Set<String> CHEF_TRANSITIONS = Set.of(
-            "NEW->PREPARING",
-            "PREPARING->PACKED_READY"
-    );
+    /** Guest count → table type mapping (P0.10). */
+    private static String tableTypeForGuests(int guests) {
+        if (guests <= 2) return "2-Seater";
+        if (guests <= 4) return "4-Seater";
+        return "6-Seater";
+    }
 
     /**
      * Customer places an order against a restaurant's menu.
      * Payment status is ALWAYS server-set to PENDING here — clients can never
      * mark their own orders paid. It can only move to PAID via confirmPayment().
+     *
+     * P0.11: Backend revalidates everything — restaurant, menu items, prices,
+     * plate capacity, table capacity, pre-order rules. Frontend is never authoritative.
+     *
+     * P0.12: Prices are snapshotted on OrderItem so historical orders are stable.
+     *
+     * P0.8: Plate capacity is atomically reserved using SELECT FOR UPDATE.
+     *
+     * P0.9: Table capacity is atomically reserved using SELECT FOR UPDATE.
      */
     @Transactional
     public Order placeOrder(String userId, String restaurantId, String customerName,
@@ -80,11 +75,7 @@ public class OrderService {
             throw new IllegalArgumentException("Order must contain at least one item");
         }
 
-        // A suspended restaurant must not accept orders — neither now nor via
-        // pre-orders. The super admin suspends a restaurant to take it offline;
-        // customers hitting the API directly (or the menu cached in their
-        // browser) must get a clear business error instead of an order that
-        // will never be fulfilled.
+        // P0.11: Revalidate restaurant
         Restaurant restaurant = restaurantRepository.findById(restaurantId)
                 .orElseThrow(() -> new IllegalArgumentException("Restaurant not found"));
         if (!"ACTIVE".equals(restaurant.getStatus())) {
@@ -95,15 +86,24 @@ public class OrderService {
 
         String effectiveOrderType = orderType != null ? orderType.toUpperCase() : "PICKUP";
 
-        // PRE_ORDER: enforce every business rule (horizon, cutoff, closure,
-        // dish availability) BEFORE pricing so customers get a clear error
-        // instead of an order that can never be fulfilled.
+        // P0.14: PRE_ORDER validation
         if ("PRE_ORDER".equals(effectiveOrderType)) {
             validatePreOrder(restaurantId, pickupTime, items);
         }
 
         BigDecimal total = BigDecimal.ZERO;
         List<OrderItem> orderItems = new ArrayList<>();
+        List<PlateCapacity> capacityReservations = new ArrayList<>();
+
+        LocalDate today = LocalDate.now();
+        LocalDate orderDate = today;
+
+        // For PRE_ORDER, parse the date from pickupTime
+        if ("PRE_ORDER".equals(effectiveOrderType) && pickupTime != null && pickupTime.length() >= 10) {
+            try {
+                orderDate = LocalDate.parse(pickupTime.substring(0, 10));
+            } catch (Exception ignored) {}
+        }
 
         for (OrderItemRequest line : items) {
             String menuItemId = line.menuItemId();
@@ -111,44 +111,39 @@ public class OrderService {
             if (qty <= 0) {
                 throw new IllegalArgumentException("Quantity must be a positive number");
             }
+
+            // P0.11: Revalidate menu item
             MenuItem menuItem = menuItemRepository.findByIdAndRestaurantId(menuItemId, restaurantId)
-                    .orElseThrow(() -> new IllegalArgumentException("Menu item not found: " + menuItemId));
+                    .orElseThrow(() -> new IllegalArgumentException("Menu item not found"));
             if (!"Available".equals(menuItem.getStatus())) {
-                throw new IllegalArgumentException("Item is sold out: " + menuItem.getTitle());
+                throw new IllegalArgumentException(menuItem.getTitle() + " is no longer available");
             }
 
-            // Daily plate cap enforcement — reject if ordering would exceed the daily limit
+            // P0.8: Atomic plate capacity reservation
             if (menuItem.getDailyPlateCount() != null) {
-                LocalDate today = LocalDate.now();
-                long alreadyOrdered = orderItemRepository.countPlatesOrderedForItem(
-                        menuItemId, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
-                long remaining = menuItem.getDailyPlateCount() - alreadyOrdered;
-                if (remaining <= 0) {
-                    throw new IllegalArgumentException(
-                            menuItem.getTitle() + " is sold out for today — all "
-                                    + menuItem.getDailyPlateCount() + " plates have been ordered.");
-                }
-                if (qty > remaining) {
-                    throw new IllegalArgumentException(
-                            "Only " + remaining + " plate" + (remaining == 1 ? "" : "s")
-                                    + " of " + menuItem.getTitle() + " remaining for today."
-                                    + " You ordered " + qty + ".");
-                }
+                PlateCapacity reservation = reservePlateCapacity(menuItem, restaurantId, orderDate, qty);
+                capacityReservations.add(reservation);
             }
 
-            // Use the effective price (latest price_rule <= now), falling back to base price
+            // P0.12: Price snapshot — use effective price, preserve on OrderItem
             BigDecimal effectivePrice = menuService.getEffectivePrice(menuItem.getId(), menuItem.getPrice());
             BigDecimal lineTotal = effectivePrice.multiply(BigDecimal.valueOf(qty));
             total = total.add(lineTotal);
 
             orderItems.add(OrderItem.builder()
-                    .orderId(null) // set after order save
+                    .orderId(null)
                     .menuItemId(menuItemId)
                     .title(menuItem.getTitle())
                     .quantity(qty)
                     .unitPrice(effectivePrice)
                     .notes(line.notes())
                     .build());
+        }
+
+        // P0.9: Atomic table capacity reservation for DINE_IN
+        if ("DINE_IN".equals(effectiveOrderType) && guests != null && timeSlot != null) {
+            String tableType = tableTypeForGuests(guests);
+            reserveTableCapacity(restaurantId, orderDate, timeSlot, tableType, 1);
         }
 
         Order order = Order.builder()
@@ -164,7 +159,7 @@ public class OrderService {
                 .customerEmail(customerEmail)
                 .userId(userId)
                 .totalAmount(total)
-                .paymentStatus("PENDING") // server-authoritative; never trust the client here
+                .paymentStatus("PENDING")
                 .paymentMethod(paymentMethod != null ? paymentMethod : "MOCK")
                 .orderStatus("NEW")
                 .build();
@@ -173,9 +168,8 @@ public class OrderService {
         orderItems.forEach(oi -> oi.setOrderId(saved.getId()));
         orderItemRepository.saveAll(orderItems);
 
-        // Transactional outbox: record order.created in the SAME transaction as the order.
-        // OutboxPoller dispatches this to NotificationService / SSE asynchronously.
-        Map<String, Object> eventPayload = new HashMap<>();
+        // Transactional outbox: record order.created in the SAME transaction
+        Map<String, Object> eventPayload = new LinkedHashMap<>();
         eventPayload.put("orderId", saved.getId());
         eventPayload.put("restaurantId", restaurantId);
         eventPayload.put("orderNumber", saved.getOrderNumber());
@@ -190,19 +184,15 @@ public class OrderService {
         log.info("Order {} placed by {} at restaurant {} (outbox: order.created)",
                 saved.getOrderNumber(), customerName, restaurantId);
 
-        // Real-time: broadcast table availability change for DINE_IN orders
+        // Real-time broadcasts
         if ("DINE_IN".equals(effectiveOrderType) && timeSlot != null) {
             broadcastTableAvailability(restaurantId, timeSlot);
         }
-
-        // Also broadcast plate availability for each ordered item (plates decremented)
         for (OrderItem oi : orderItems) {
             broadcastPlateCount(restaurantId, oi.getMenuItemId());
         }
 
-        // Auto-join: if the restaurant has autoJoinCustomers enabled and this
-        // customer is not yet a member, add them automatically so they can
-        // use the restaurant picker on subsequent logins.
+        // P0.2: Auto-join (non-critical)
         if (userId != null && Boolean.TRUE.equals(restaurant.getAutoJoinCustomers())) {
             try {
                 if (!customerRestaurantService.isMember(userId, restaurantId)) {
@@ -210,7 +200,6 @@ public class OrderService {
                     log.info("Auto-joined customer {} to restaurant {} on first order", userId, restaurantId);
                 }
             } catch (Exception e) {
-                // Non-critical — log and continue; the order is already placed.
                 log.warn("Failed to auto-join customer {} to restaurant {}: {}", userId, restaurantId, e.getMessage());
             }
         }
@@ -218,18 +207,163 @@ public class OrderService {
         return saved;
     }
 
+    // ─── P0.8: PLATE CAPACITY ATOMIC RESERVATION ──────────────────
+
     /**
-     * Validates that a PRE_ORDER can be fulfilled: the pickup date must be
-     * within the ordering horizon, the cutoff must not have passed, the
-     * restaurant must be open (pickup within operating hours), and every dish
-     * must be available on that date. All decisions use the business timezone
-     * via {@link BusinessClock}.
+     * Atomically reserve plate capacity using SELECT FOR UPDATE.
+     * If the dish has no capacity record, one is created from the MenuItem config.
+     * Returns the reservation (for potential rollback if the overall order fails).
+     *
+     * @throws IllegalArgumentException with PLATE_CAPACITY_EXCEEDED message if not enough capacity
      */
+    private PlateCapacity reservePlateCapacity(MenuItem menuItem, String restaurantId,
+                                                LocalDate businessDate, int requestedQty) {
+        // Get or create capacity record with row lock
+        PlateCapacity capacity = plateCapacityRepository
+                .findByMenuItemIdAndBusinessDateForUpdate(menuItem.getId(), businessDate)
+                .orElseGet(() -> {
+                    PlateCapacity newCap = PlateCapacity.builder()
+                            .menuItemId(menuItem.getId())
+                            .restaurantId(restaurantId)
+                            .businessDate(businessDate)
+                            .capacity(menuItem.getDailyPlateCount() != null ? menuItem.getDailyPlateCount() : Integer.MAX_VALUE)
+                            .reservedCount(0)
+                            .version(0L)
+                            .build();
+                    return plateCapacityRepository.save(newCap);
+                });
+
+        int remaining = capacity.remaining();
+        if (remaining <= 0) {
+            throw new IllegalArgumentException(
+                    menuItem.getTitle() + " is sold out for today — all "
+                            + capacity.getCapacity() + " plates have been ordered.");
+        }
+        if (requestedQty > remaining) {
+            throw new IllegalArgumentException(
+                    "Only " + remaining + " plate" + (remaining == 1 ? "" : "s")
+                            + " of " + menuItem.getTitle() + " remaining for today."
+                            + " You ordered " + requestedQty + ".");
+        }
+
+        capacity.setReservedCount(capacity.getReservedCount() + requestedQty);
+        try {
+            return plateCapacityRepository.save(capacity);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new IllegalArgumentException(
+                    menuItem.getTitle() + " plate capacity changed concurrently. Please retry.");
+        }
+    }
+
+    /**
+     * Release a plate capacity reservation (called on order cancellation/decline).
+     * Idempotent — releasing an already-released reservation is safe.
+     */
+    public void releasePlateCapacity(String menuItemId, LocalDate businessDate, int qty) {
+        try {
+            Optional<PlateCapacity> opt = plateCapacityRepository
+                    .findByMenuItemIdAndBusinessDate(menuItemId, businessDate);
+            if (opt.isPresent()) {
+                PlateCapacity cap = opt.get();
+                cap.setReservedCount(Math.max(0, cap.getReservedCount() - qty));
+                plateCapacityRepository.save(cap);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to release plate capacity for {} on {}: {}", menuItemId, businessDate, e.getMessage());
+        }
+    }
+
+    // ─── P0.9: TABLE CAPACITY ATOMIC RESERVATION ──────────────────
+
+    /**
+     * Atomically reserve table capacity using SELECT FOR UPDATE.
+     * Creates the capacity record from RestaurantSettings if it doesn't exist.
+     *
+     * @throws IllegalArgumentException TABLE_SLOT_FULL if no tables available
+     */
+    private void reserveTableCapacity(String restaurantId, LocalDate businessDate,
+                                       String timeSlot, String tableType, int tablesNeeded) {
+        TableSlotCapacity capacity = tableSlotCapacityRepository
+                .findByRestaurantAndDateAndSlotAndTypeForUpdate(restaurantId, businessDate, timeSlot, tableType)
+                .orElseGet(() -> {
+                    // Create from restaurant settings
+                    int total = getTableCount(restaurantId, tableType);
+                    TableSlotCapacity newCap = TableSlotCapacity.builder()
+                            .restaurantId(restaurantId)
+                            .businessDate(businessDate)
+                            .timeSlot(timeSlot)
+                            .tableType(tableType)
+                            .totalCapacity(total)
+                            .reservedCount(0)
+                            .version(0L)
+                            .build();
+                    return tableSlotCapacityRepository.save(newCap);
+                });
+
+        int remaining = capacity.remaining();
+        if (remaining < tablesNeeded) {
+            throw new IllegalArgumentException(
+                    "No " + tableType.toLowerCase() + " tables are available for " + timeSlot
+                            + ". Only " + remaining + " remaining.");
+        }
+
+        capacity.setReservedCount(capacity.getReservedCount() + tablesNeeded);
+        try {
+            tableSlotCapacityRepository.save(capacity);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new IllegalArgumentException(
+                    "Table reservation changed concurrently. Please retry.");
+        }
+    }
+
+    /**
+     * Release a table capacity reservation (called on order cancellation).
+     */
+    public void releaseTableCapacity(String restaurantId, LocalDate businessDate,
+                                      String timeSlot, String tableType, int tablesNeeded) {
+        try {
+            Optional<TableSlotCapacity> opt = tableSlotCapacityRepository
+                    .findByRestaurantAndDateAndSlotAndTypeForUpdate(restaurantId, businessDate, timeSlot, tableType);
+            if (opt.isPresent()) {
+                TableSlotCapacity cap = opt.get();
+                cap.setReservedCount(Math.max(0, cap.getReservedCount() - tablesNeeded));
+                tableSlotCapacityRepository.save(cap);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to release table capacity for {} on {}: {}", restaurantId, businessDate, e.getMessage());
+        }
+    }
+
+    /**
+     * Get the table count for a table type from restaurant settings.
+     */
+    private int getTableCount(String restaurantId, String tableType) {
+        try {
+            var settings = restaurantSettingsRepository.findById(restaurantId);
+            if (settings.isPresent() && settings.get().getTableConfig() != null) {
+                String json = settings.get().getTableConfig();
+                // Simple JSON parsing for table config like [{"type":"2-Seater","count":5}]
+                String search = "\"" + tableType + "\"";
+                int idx = json.indexOf(search);
+                if (idx >= 0) {
+                    String after = json.substring(idx + search.length());
+                    int countIdx = after.indexOf("\"count\"");
+                    if (countIdx >= 0) {
+                        String countPart = after.substring(countIdx + 8).replaceAll("[^0-9]", "");
+                        if (!countPart.isEmpty()) return Integer.parseInt(countPart);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not parse table config for {}: {}", restaurantId, e.getMessage());
+        }
+        return 5; // default fallback
+    }
+
+    // ─── PRE-ORDER VALIDATION ──────────────────────────────────────
+
     private void validatePreOrder(String restaurantId, String pickupTime,
                                   List<OrderItemRequest> items) {
-        // Pre-orders carry an ISO pickup datetime, e.g. "2026-08-14T19:30:00".
-        // Missing/invalid pickupTime is a client error — every pre-order must
-        // state the fulfillment date.
         if (pickupTime == null || pickupTime.isBlank()) {
             throw new IllegalArgumentException("pickupTime (ISO datetime) is required for pre-orders");
         }
@@ -243,20 +377,16 @@ public class OrderService {
         }
         try {
             time = LocalTime.parse(pickupTime.substring(11, 19));
-        } catch (Exception ignored) {
-            // time is optional for the rules below (open-hours check only)
-        }
+        } catch (Exception ignored) {}
 
         List<String> menuItemIds = items.stream().map(OrderItemRequest::menuItemId).toList();
         availabilityService.validatePreOrder(restaurantId, date, time, menuItemIds);
     }
 
+    // ─── PAYMENT CONFIRMATION ─────────────────────────────────────
+
     /**
-     * Server-authoritative payment confirmation.
-     * Marks an order PAID only after the server verifies the caller is the order
-     * owner (or staff of the order's restaurant) and, when provided, that the paid
-     * amount matches the order total. The Payment row is recorded in the same
-     * transaction for audit.
+     * Server-authoritative payment confirmation. P0.4: Idempotent.
      */
     @Transactional
     public Order confirmPayment(String orderId, String actorUserId, String role, String restaurantId,
@@ -271,26 +401,21 @@ public class OrderService {
             throw new SecurityException("Forbidden: not the order owner or restaurant staff");
         }
 
+        // P0.4: Idempotent — already confirmed
         if ("PAID".equals(order.getPaymentStatus())) {
-            return order; // idempotent — already confirmed
+            return order;
         }
 
-        // Idempotency: if a payment already exists for this order, return it
+        // P0.4: Idempotent — payment record exists
         if (!paymentRepository.findByOrderId(orderId).isEmpty()) {
             order.setPaymentStatus("PAID");
             return orderRepository.save(order);
         }
 
-        // CASH / Pay-on-Pickup orders must not be confirmed online — the customer
-        // pays at the counter. The restaurant staff should mark the order as PAID
-        // through a separate "mark-paid" flow when cash is collected.
         if ("CASH".equalsIgnoreCase(gateway) || "CASH".equalsIgnoreCase(order.getPaymentMethod())) {
             throw new IllegalArgumentException("CASH orders cannot be confirmed online — customer pays at pickup");
         }
 
-        // Amount is required — the server must always verify the payment value
-        // against the order total. Compare at 2-decimal precision so JSON
-        // floating-point totals (e.g. 123.44999…) still match the exact total.
         if (amount == null) {
             throw new IllegalArgumentException("Payment amount is required");
         }
@@ -312,9 +437,7 @@ public class OrderService {
                 .paymentStatus("PAID")
                 .build());
 
-        // Transactional outbox: payment.confirmed in the SAME transaction so the
-        // customer always receives their receipt (Gmail) via the Kafka pipeline.
-        Map<String, Object> paymentPayload = new HashMap<>();
+        Map<String, Object> paymentPayload = new LinkedHashMap<>();
         paymentPayload.put("orderId", orderId);
         paymentPayload.put("restaurantId", saved.getRestaurantId());
         paymentPayload.put("orderNumber", saved.getOrderNumber());
@@ -330,49 +453,30 @@ public class OrderService {
         return saved;
     }
 
-    /**
-     * Staff-only cash payment completion.
-     * When a customer pays at the counter, staff marks the CASH order as PAID.
-     *
-     * Rules:
-     * - Only CASH orders in PENDING payment status can be marked paid.
-     * - Only restaurant staff (manager/admin/super-admin) can perform this.
-     * - Cross-tenant access is prevented by restaurantId validation.
-     * - Already-paid orders are rejected (idempotent via early return).
-     * - The action is auditable (audit trail recorded).
-     */
+    // ─── CASH PAYMENT ─────────────────────────────────────────────
+
     @Transactional
     public Order markCashPaid(String orderId, String restaurantId, String actorUserId, String role) {
         Order order = orderRepository.findByIdAndRestaurantId(orderId, restaurantId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found in this restaurant"));
 
-        // Only staff can mark cash as paid
         if (role == null || "ROLE_CUSTOMER".equals(role)) {
             throw new SecurityException("Only staff can mark cash payments as paid");
         }
-
-        // Only CASH orders can be marked paid this way
         if (!"CASH".equalsIgnoreCase(order.getPaymentMethod())) {
             throw new IllegalArgumentException(
                     "Only CASH orders can be marked paid at the counter (order method: " + order.getPaymentMethod() + ")");
         }
-
-        // Already paid — idempotent return
         if ("PAID".equals(order.getPaymentStatus())) {
-            return order;
+            return order; // idempotent
         }
-
-        // Must be PENDING to be marked paid
         if (!"PENDING".equals(order.getPaymentStatus())) {
-            throw new IllegalArgumentException(
-                    "Cannot mark a " + order.getPaymentStatus() + " order as paid");
+            throw new IllegalArgumentException("Cannot mark a " + order.getPaymentStatus() + " order as paid");
         }
 
-        // Mark payment as PAID
         order.setPaymentStatus("PAID");
         Order saved = orderRepository.save(order);
 
-        // Create payment record for audit trail
         paymentRepository.save(Payment.builder()
                 .transactionId("TXN_CASH_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16))
                 .orderId(orderId)
@@ -382,16 +486,16 @@ public class OrderService {
                 .paymentStatus("PAID")
                 .build());
 
-        // Audit trail
         auditService.record(restaurantId, actorUserId, role, "CASH_PAYMENT_RECORDED", "ORDER", orderId,
                 Map.of("orderNumber", saved.getOrderNumber(), "amount", saved.getTotalAmount(),
                        "paymentMethod", "CASH"),
                 "Cash payment collected at counter");
 
-        log.info("Cash payment recorded for order {} by {} (amount: {})",
-                saved.getOrderNumber(), actorUserId, saved.getTotalAmount());
+        log.info("Cash payment recorded for order {} by {} (amount: {})", saved.getOrderNumber(), actorUserId, saved.getTotalAmount());
         return saved;
     }
+
+    // ─── QUERIES ───────────────────────────────────────────────────
 
     public List<Order> ordersForCustomer(String userId) {
         return orderRepository.findByUserIdOrderByCreatedAtDesc(userId);
@@ -401,10 +505,6 @@ public class OrderService {
         return orderRepository.findByRestaurantIdOrderByCreatedAtDesc(restaurantId);
     }
 
-    /**
-     * Add or update a kitchen note on an order item.
-     * Notes are visible in the kitchen production view.
-     */
     @Transactional
     public void updateItemNotes(String orderId, String itemId, String notes) {
         OrderItem item = orderItemRepository.findById(itemId)
@@ -420,7 +520,6 @@ public class OrderService {
         return orderItemRepository.findByOrderId(orderId);
     }
 
-    /** Batch lookup of line items for many orders (avoids N+1 on dashboards). */
     public Map<String, List<OrderItem>> itemsByOrderIds(List<String> orderIds) {
         if (orderIds == null || orderIds.isEmpty()) return Map.of();
         Map<String, List<OrderItem>> map = new HashMap<>();
@@ -434,11 +533,8 @@ public class OrderService {
         return orderRepository.findById(orderId);
     }
 
-    /**
-     * Kitchen production view — aggregates active orders by dish for the current day.
-     * Shows required plates, urgency based on pickup time, and which orders need each dish.
-     * Orders in NEW/PREPARING/PACKED_READY status count toward production.
-     */
+    // ─── KITCHEN PRODUCTION ────────────────────────────────────────
+
     public List<Map<String, Object>> getKitchenProduction(String restaurantId) {
         List<Order> activeOrders = orderRepository.findByRestaurantIdOrderByCreatedAtDesc(restaurantId)
                 .stream()
@@ -450,7 +546,6 @@ public class OrderService {
                 ? List.of()
                 : orderItemRepository.findByOrderIdIn(orderIds);
 
-        // Aggregate by dish
         Map<String, Map<String, Object>> dishMap = new LinkedHashMap<>();
         for (OrderItem item : orderItems) {
             String dishId = item.getMenuItemId();
@@ -472,7 +567,6 @@ public class OrderService {
             );
         }
 
-        // Calculate urgency for each dish based on earliest pickup time of its orders
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map<String, Object> dish : dishMap.values()) {
@@ -480,7 +574,6 @@ public class OrderService {
             dish.put("preparedPlates", 0);
             dish.put("remainingPlates", required);
 
-            // Calculate urgency from earliest pickup time among this dish's orders
             String earliestPickup = null;
             List<String> orderNums = (List<String>) dish.get("orderNumbers");
             for (Order o : activeOrders) {
@@ -499,11 +592,8 @@ public class OrderService {
                 try {
                     java.time.LocalDateTime pickup = java.time.LocalDateTime.parse(earliestPickup);
                     long minutesUntil = java.time.Duration.between(now, pickup).toMinutes();
-                    if (minutesUntil < 0) {
-                        urgency = "OVERDUE";
-                    } else if (minutesUntil <= 30) {
-                        urgency = "DUE_SOON";
-                    }
+                    if (minutesUntil < 0) urgency = "OVERDUE";
+                    else if (minutesUntil <= 30) urgency = "DUE_SOON";
                 } catch (Exception ignored) {}
             }
             dish.put("urgency", urgency);
@@ -511,7 +601,6 @@ public class OrderService {
             result.add(dish);
         }
 
-        // Sort by urgency (OVERDUE first, then DUE_SOON, then NORMAL)
         result.sort(Comparator.comparing((Map<String, Object> m) -> {
             String u = (String) m.get("urgency");
             return "OVERDUE".equals(u) ? 0 : "DUE_SOON".equals(u) ? 1 : 2;
@@ -520,10 +609,6 @@ public class OrderService {
         return result;
     }
 
-    /**
-     * Detect delayed orders — orders where current time > promised pickup time
-     * and order is not yet completed.
-     */
     public List<Map<String, Object>> getDelayedOrders(String restaurantId) {
         List<Order> activeOrders = orderRepository.findByRestaurantIdOrderByCreatedAtDesc(restaurantId)
                 .stream()
@@ -536,7 +621,6 @@ public class OrderService {
         for (Order order : activeOrders) {
             if (order.getPickupTime() != null && !order.getPickupTime().isBlank()) {
                 try {
-                    // Try parsing ISO datetime format (pre-orders)
                     java.time.LocalDateTime pickup = java.time.LocalDateTime.parse(order.getPickupTime());
                     if (now.isAfter(pickup)) {
                         long delayMinutes = java.time.Duration.between(pickup, now).toMinutes();
@@ -551,7 +635,7 @@ public class OrderService {
                         delayed.add(entry);
                     }
                 } catch (Exception e) {
-                    // Non-ISO pickup times (e.g. "30 Mins (Ready by 07:45 PM)") — skip
+                    // Non-ISO pickup times — skip
                 }
             }
         }
@@ -559,17 +643,8 @@ public class OrderService {
         return delayed;
     }
 
-    /**
-     * Manager / Chef / Admin advances the order workflow.
-     * When an order becomes PACKED_READY the customer gets a real-time
-     * "order ready" notification (App push + SMS/WhatsApp/Email).
-     *
-     * Role rules:
-     *  - Chef-only accounts may cook (NEW -> PREPARING) and pack (PREPARING ->
-     *    PACKED_READY). They cannot decline, complete, or hand over.
-     *  - Managers / admins / super admins (and dual-role Manager+Chef users)
-     *    may perform the full flow, including decline and handover.
-     */
+    // ─── STATUS UPDATE ─────────────────────────────────────────────
+
     @Transactional
     public Order updateStatus(String orderId, String restaurantId, String newStatus,
                               String actorUserId, String role) {
@@ -579,7 +654,6 @@ public class OrderService {
         String current = order.getOrderStatus();
         OrderStateMachine.validate(current, newStatus, role);
 
-        // Write to append-only audit trail BEFORE mutating the order
         OrderStatusHistory history = OrderStatusHistory.builder()
                 .orderId(orderId)
                 .fromStatus(current)
@@ -588,15 +662,10 @@ public class OrderService {
                 .build();
         orderStatusHistoryRepository.save(history);
 
-        // Record cancellation/decline metadata if applicable
         if ("CANCELLED".equals(newStatus) || "DECLINED".equals(newStatus)) {
             order.setCancelledBy(actorUserId);
             order.setCancelledAt(java.time.LocalDateTime.now());
-            if ("CANCELLED".equals(newStatus)) {
-                order.setCancelReason("Cancelled by " + role);
-            } else {
-                order.setCancelReason("Declined by " + role);
-            }
+            order.setCancelReason("CANCELLED".equals(newStatus) ? "Cancelled by " + role : "Declined by " + role);
         }
 
         order.setOrderStatus(newStatus);
@@ -607,12 +676,18 @@ public class OrderService {
             ingredientService.deductForOrder(orderId, restaurantId);
         }
 
-        // Release inventory reservation on cancellation/decline
+        // Release inventory on cancellation/decline
         if ("CANCELLED".equals(newStatus) || "DECLINED".equals(newStatus)) {
             ingredientService.releaseReservation(orderId, restaurantId);
+
+            // P0.8: Release plate capacity reservation
+            releasePlateReservationsForOrder(order, restaurantId);
+
+            // P0.9: Release table capacity reservation
+            releaseTableReservationForOrder(order, restaurantId);
         }
 
-        // Audit trail for cancellation/decline
+        // Audit trail
         if ("CANCELLED".equals(newStatus) || "DECLINED".equals(newStatus)) {
             String action = "CANCELLED".equals(newStatus) ? "ORDER_CANCELLED" : "ORDER_DECLINED";
             auditService.record(restaurantId, actorUserId, role, action, "ORDER", orderId,
@@ -621,9 +696,8 @@ public class OrderService {
                     order.getCancelReason());
         }
 
-        // Transactional outbox: record order.status.changed in the SAME transaction.
-        // OutboxPoller dispatches customer + staff notifications asynchronously.
-        Map<String, Object> eventPayload = new HashMap<>();
+        // Transactional outbox
+        Map<String, Object> eventPayload = new LinkedHashMap<>();
         eventPayload.put("orderId", saved.getId());
         eventPayload.put("restaurantId", restaurantId);
         eventPayload.put("orderNumber", saved.getOrderNumber());
@@ -642,45 +716,73 @@ public class OrderService {
     }
 
     /**
-     * Initiate a refund for a paid order. Creates a Refund record in REQUESTED state.
-     * The actual provider refund should be processed asynchronously (webhook or polling).
-     * Full refunds only for now — structured so PARTIAL_REFUND can be added later.
+     * Release plate capacity reservations for a cancelled/declined order.
      */
+    private void releasePlateReservationsForOrder(Order order, String restaurantId) {
+        LocalDate orderDate = todayOrNull(order);
+        if (orderDate == null) return;
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        for (OrderItem item : items) {
+            releasePlateCapacity(item.getMenuItemId(), orderDate, item.getQuantity());
+        }
+    }
+
+    /**
+     * Release table capacity reservation for a cancelled/declined order.
+     */
+    private void releaseTableReservationForOrder(Order order, String restaurantId) {
+        if (!"DINE_IN".equals(order.getOrderType()) || order.getGuests() == null || order.getTimeSlot() == null) {
+            return;
+        }
+        LocalDate orderDate = todayOrNull(order);
+        if (orderDate == null) return;
+
+        String tableType = tableTypeForGuests(order.getGuests());
+        releaseTableCapacity(restaurantId, orderDate, order.getTimeSlot(), tableType, 1);
+    }
+
+    private LocalDate todayOrNull(Order order) {
+        // For PRE_ORDER, use the pickup date; for others, use today
+        if ("PRE_ORDER".equals(order.getOrderType()) && order.getPickupTime() != null && order.getPickupTime().length() >= 10) {
+            try {
+                return LocalDate.parse(order.getPickupTime().substring(0, 10));
+            } catch (Exception ignored) {}
+        }
+        return LocalDate.now();
+    }
+
+    // ─── REFUNDS ──────────────────────────────────────────────────
+
     @Transactional
     public Refund initiateRefund(String orderId, String actorUserId, String role, String restaurantId, String reason) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
 
-        // Tenant isolation
         if (!restaurantId.equals(order.getRestaurantId())) {
             throw new SecurityException("Order does not belong to this restaurant");
         }
-
-        // Only staff can initiate refunds
         if (role == null || "ROLE_CUSTOMER".equals(role)) {
             throw new SecurityException("Only staff can initiate refunds");
         }
 
-        // Idempotent: if any refund already exists, return it
+        // P0.6: Idempotent — return existing non-failed refund
         List<Refund> existing = refundRepository.findByOrderId(orderId);
         for (Refund r : existing) {
             if (!"FAILED".equals(r.getRefundStatus())) {
-                return r; // already refunded, in progress, or requested
+                return r;
             }
         }
 
-        // Must be paid (or REFUND_PENDING from a previous REQUESTED refund that was lost)
         if (!"PAID".equals(order.getPaymentStatus()) && !"REFUND_PENDING".equals(order.getPaymentStatus())) {
             throw new IllegalArgumentException("Cannot refund an order that is not PAID (current: " + order.getPaymentStatus() + ")");
         }
 
-        // If already REFUND_PENDING but no refund record found (data inconsistency), reset to PAID
         if ("REFUND_PENDING".equals(order.getPaymentStatus())) {
             order.setPaymentStatus("PAID");
             orderRepository.save(order);
         }
 
-        // Find the payment record to get gateway info
         String gateway = order.getPaymentMethod();
         String paymentId = null;
         var payments = paymentRepository.findByOrderId(orderId);
@@ -702,12 +804,10 @@ public class OrderService {
                 .build();
         Refund saved = refundRepository.save(refund);
 
-        // Update order payment status to indicate refund is pending
         order.setPaymentStatus("REFUND_PENDING");
         orderRepository.save(order);
 
-        // Outbox event
-        Map<String, Object> eventPayload = new HashMap<>();
+        Map<String, Object> eventPayload = new LinkedHashMap<>();
         eventPayload.put("orderId", orderId);
         eventPayload.put("refundId", saved.getId());
         eventPayload.put("restaurantId", restaurantId);
@@ -723,9 +823,6 @@ public class OrderService {
         return saved;
     }
 
-    /**
-     * Mark a refund as completed (called by webhook handler or async processor).
-     */
     @Transactional
     public Refund completeRefund(String refundId, String providerRefundId) {
         Refund refund = refundRepository.findById(refundId)
@@ -740,14 +837,12 @@ public class OrderService {
         refund.setCompletedAt(java.time.LocalDateTime.now());
         Refund saved = refundRepository.save(refund);
 
-        // Update order payment status
         Order order = orderRepository.findById(refund.getOrderId()).orElse(null);
         if (order != null) {
             order.setPaymentStatus("REFUNDED");
             orderRepository.save(order);
         }
 
-        // Update payment status
         if (refund.getPaymentId() != null && !"UNKNOWN".equals(refund.getPaymentId())) {
             paymentRepository.findById(refund.getPaymentId()).ifPresent(p -> {
                 p.setPaymentStatus("REFUNDED");
@@ -763,54 +858,35 @@ public class OrderService {
         return saved;
     }
 
-    // Transition validation is now handled by OrderStateMachine.validate()
+    // ─── SSE BROADCASTS ────────────────────────────────────────────
 
-    // ─── REAL-TIME SSE BROADCASTS ──────────────────────────────────────
-
-    /**
-     * Broadcast table availability for a restaurant + date prefix to all
-     * connected users via SSE. The frontend checkout modal picks this up
-     * and refreshes the table availability cards in real time.
-     */
     private void broadcastTableAvailability(String restaurantId, String timeSlot) {
         try {
             String today = LocalDate.now().toString();
-
-            // Count current DINE_IN bookings per guest count (including overlapping 1-hour window)
             List<String> timeSlots = getTimeSlotsWithinOneHour(timeSlot);
-            List<String> timeSlots24h = timeSlots.stream()
-                    .map(this::to24Hour)
-                    .distinct()
-                    .collect(java.util.stream.Collectors.toList());
+            List<String> timeSlots24h = timeSlots.stream().map(this::to24Hour).distinct().collect(Collectors.toList());
             List<Object[]> booked = orderRepository.countDineInByTimeSlots(restaurantId, today, timeSlots, timeSlots24h);
-        Map<Integer, Long> bookedByGuests = new HashMap<>();
-        for (Object[] row : booked) {
-            Integer guests = ((Number) row[0]).intValue();
-            Long count = ((Number) row[1]).longValue();
-            bookedByGuests.put(guests, count);
-        }
+            Map<Integer, Long> bookedByGuests = new HashMap<>();
+            for (Object[] row : booked) {
+                Integer guests = ((Number) row[0]).intValue();
+                Long count = ((Number) row[1]).longValue();
+                bookedByGuests.put(guests, count);
+            }
 
-            Map<String, Object> event = new HashMap<>();
+            Map<String, Object> event = new LinkedHashMap<>();
             event.put("restaurantId", restaurantId);
             event.put("date", today);
             event.put("timeSlot", timeSlot);
             event.put("bookedByGuests", bookedByGuests);
             event.put("timestamp", java.time.LocalDateTime.now().toString());
 
-            // Broadcast to all connected users (customers browsing checkout)
             realtimeService.broadcastToAllUsers("table_availability", event);
-            // Also to restaurant staff
             realtimeService.pushToRestaurant(restaurantId, "table_availability", event);
-
-            log.info("[SSE] Broadcast table availability for {} slot '{}'", restaurantId, timeSlot);
         } catch (Exception e) {
             log.warn("[SSE] Failed to broadcast table availability: {}", e.getMessage());
         }
     }
 
-    /**
-     * Broadcast updated plate count for a menu item after an order is placed.
-     */
     private void broadcastPlateCount(String restaurantId, String menuItemId) {
         try {
             MenuItem item = menuItemRepository.findById(menuItemId).orElse(null);
@@ -821,7 +897,7 @@ public class OrderService {
                     menuItemId, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
             int remaining = Math.max(0, item.getDailyPlateCount() - (int) ordered);
 
-            Map<String, Object> event = new HashMap<>();
+            Map<String, Object> event = new LinkedHashMap<>();
             event.put("menuItemId", menuItemId);
             event.put("title", item.getTitle());
             event.put("status", remaining > 0 ? item.getStatus() : "Sold Out");
@@ -836,23 +912,16 @@ public class OrderService {
         }
     }
 
-    /**
-     * Generate time slot strings for a 1-hour window around the requested slot.
-     * DINE_IN time_slot is stored as just the time (e.g. "12:00 PM"), not datetime.
-     */
     private List<String> getTimeSlotsWithinOneHour(String timeSlot) {
         List<String> slots = new ArrayList<>();
         String cleanSlot = timeSlot.trim();
-        // Strip date prefix if present (e.g. "2026-08-22 12:00 PM" → "12:00 PM")
         int pmIdx = cleanSlot.indexOf("PM");
         int amIdx = cleanSlot.indexOf("AM");
         int idx = Math.max(pmIdx, amIdx);
         if (idx > 0) {
             String before = cleanSlot.substring(0, idx + 2).trim();
             int lastSpace = before.lastIndexOf(' ');
-            if (lastSpace > 0) {
-                cleanSlot = before.substring(lastSpace + 1);
-            }
+            if (lastSpace > 0) cleanSlot = before.substring(lastSpace + 1);
         }
         slots.add(cleanSlot);
         try {
@@ -862,16 +931,10 @@ public class OrderService {
                 java.time.LocalTime next = requestedTime.plusMinutes(i * 30L);
                 slots.add(next.format(fmt12));
             }
-        } catch (Exception e) {
-            // fallback: just the exact slot
-        }
+        } catch (Exception e) {}
         return slots;
     }
 
-    /**
-     * Convert 12-hour time format to 24-hour format.
-     * e.g. "1:00 PM" → "13:00"
-     */
     private String to24Hour(String time12h) {
         try {
             java.time.format.DateTimeFormatter fmt12 = java.time.format.DateTimeFormatter.ofPattern("h:mm a");
