@@ -612,9 +612,20 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
                           const pretty = new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', {
                             weekday: 'short', day: 'numeric', month: 'short',
                           });
+                          const availCount = d.dishes.filter((x) => x.available).length;
+                          const totalCount = d.dishes.length;
+                          const unavailableDishes = d.dishes.filter((x) => !x.available).map((x) => x.title);
+                          let label = '';
+                          if (!d.orderable) {
+                            label = d.reasons[0] || 'Unavailable';
+                          } else if (unavailableDishes.length > 0) {
+                            label = `⚠️ ${unavailableDishes.join(', ')} not cooked this day`;
+                          } else {
+                            label = '✅ All items available';
+                          }
                           return (
                             <option key={d.date} value={d.date} disabled={!d.orderable}>
-                              {pretty} — {d.orderable ? 'Available' : (d.reasons[0] || 'Unavailable')}
+                              {pretty} — {label}
                             </option>
                           );
                         })}
@@ -639,11 +650,27 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
                       ))}
                     </select>
                   </div>
-                  {selectedPreOrderDate && !preOrderDates.find((d) => d.date === selectedPreOrderDate)?.orderable && (
-                    <p className="text-[10px] text-rose-400">
-                      The selected date is not orderable — pick another date or remove unavailable dishes.
-                    </p>
-                  )}
+                  {selectedPreOrderDate && (() => {
+                    const sel = preOrderDates.find((d) => d.date === selectedPreOrderDate);
+                    if (!sel) return null;
+                    const unavail = sel.dishes.filter((x) => !x.available);
+                    if (unavail.length === 0) return null;
+                    return (
+                      <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl">
+                        <p className="text-[10px] font-semibold text-rose-400 mb-1">
+                          ⚠️ {sel.orderable ? 'Some items not cooked on this day:' : 'This date is not orderable:'}
+                        </p>
+                        {unavail.map((dish) => (
+                          <p key={dish.menuItemId} className="text-[10px] text-rose-300/80 ml-2">
+                            • {dish.title} — {dish.reason || 'Not cooked this day'}
+                          </p>
+                        ))}
+                        <p className="text-[10px] text-stone-500 mt-1.5">
+                          Pick another date or remove these items from your cart.
+                        </p>
+                      </div>
+                    );
+                  })()}
                   <p className="text-[10px] text-stone-500">
                     Pre-orders close at this restaurant's configured cutoff on the day before and are
                     included in that day's ingredient forecast for the kitchen.
