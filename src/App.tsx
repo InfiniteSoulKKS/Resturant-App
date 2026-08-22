@@ -331,13 +331,20 @@ export default function App() {
     removeToken();
   };
 
-  const addToCart = (item: MenuItem) => {
+  const addToCart = (item: MenuItem, maxQuantity?: number | null) => {
     setCart((prev) => {
       const existingIndex = prev.findIndex((ci) => ci.menuItem.id === item.id);
       if (existingIndex > -1) {
+        const currentQty = prev[existingIndex].quantity;
+        if (maxQuantity !== null && maxQuantity !== undefined && currentQty >= maxQuantity) {
+          return prev; // Don't add — plate limit reached
+        }
         const updated = [...prev];
         updated[existingIndex].quantity += 1;
         return updated;
+      }
+      if (maxQuantity !== null && maxQuantity !== undefined && maxQuantity <= 0) {
+        return prev; // No plates left
       }
       return [...prev, { menuItem: item, quantity: 1 }];
     });

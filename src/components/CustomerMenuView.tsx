@@ -487,6 +487,8 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
           const cartEntry = cart.find((c) => c.menuItem.id === item.id);
           const quantityInCart = cartEntry ? cartEntry.quantity : 0;
           const isSoldOut = item.status === 'Sold Out';
+          const plateRemaining = getPlateRemaining(item.id);
+          const atPlateLimit = plateRemaining !== null && quantityInCart >= plateRemaining;
 
           return (
             <div
@@ -645,7 +647,7 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
                         Sign in as a customer to order
                       </div>
                     )
-                  ) : isSoldOut ? (
+                  ) : isSoldOut || plateRemaining === 0 ? (
                     <div className="space-y-2">
                       {quantityInCart > 0 && (
                         <div className="flex items-center gap-1.5 text-[10px] font-semibold text-rose-400 bg-rose-950/40 border border-rose-800/50 rounded-lg px-2.5 py-1.5">
@@ -657,36 +659,53 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
                         disabled
                         className="w-full py-2.5 rounded-xl bg-stone-950 text-stone-600 border border-stone-800 text-xs font-semibold cursor-not-allowed text-center"
                       >
-                        Currently Unavailable
+                        {plateRemaining === 0 ? 'Daily Limit Reached' : 'Currently Unavailable'}
                       </button>
                     </div>
                   ) : quantityInCart > 0 ? (
-                    <div className="flex items-center justify-between bg-stone-950 border border-amber-500/40 p-1.5 rounded-xl">
-                      <button
-                        onClick={() => removeFromCart(item.id)}
-                        className="w-8 h-8 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 flex items-center justify-center transition-colors cursor-pointer"
-                        title="Reduce quantity"
-                      >
-                        <Minus className="w-4 h-4" />
-                      </button>
-                      <span className="font-bold font-mono text-sm text-amber-400 px-3">
-                        {quantityInCart} in cart
-                      </span>
-                      <button
-                        onClick={() => addToCart(item)}
-                        className="w-8 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 flex items-center justify-center transition-colors font-bold cursor-pointer shadow-md shadow-amber-500/20"
-                        title="Add another"
-                      >
-                        <Plus className="w-4 h-4 stroke-[3]" />
-                      </button>
+                    <div className="space-y-1.5">
+                      {atPlateLimit && (
+                        <div className="text-center text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1">
+                          Max daily limit reached ({plateRemaining} plates)
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between bg-stone-950 border border-amber-500/40 p-1.5 rounded-xl">
+                        <button
+                          onClick={() => removeFromCart(item.id)}
+                          className="w-8 h-8 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 flex items-center justify-center transition-colors cursor-pointer"
+                          title="Reduce quantity"
+                        >
+                          <Minus className="w-4 h-4" />
+                        </button>
+                        <span className="font-bold font-mono text-sm text-amber-400 px-3">
+                          {quantityInCart} in cart
+                        </span>
+                        <button
+                          onClick={() => addToCart(item, plateRemaining)}
+                          disabled={atPlateLimit}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors font-bold cursor-pointer shadow-md ${
+                            atPlateLimit
+                              ? 'bg-stone-800 text-stone-500 cursor-not-allowed shadow-none'
+                              : 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-amber-500/20'
+                          }`}
+                          title={atPlateLimit ? 'Daily plate limit reached' : 'Add another'}
+                        >
+                          <Plus className="w-4 h-4 stroke-[3]" />
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <button
-                      onClick={() => addToCart(item)}
-                      className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold tracking-wide transition-all cursor-pointer shadow-lg shadow-amber-500/15 flex items-center justify-center gap-2 active:scale-[0.98]"
+                      onClick={() => addToCart(item, plateRemaining)}
+                      disabled={atPlateLimit}
+                      className={`w-full py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all flex items-center justify-center gap-2 active:scale-[0.98] ${
+                        atPlateLimit
+                          ? 'bg-stone-800 text-stone-500 border border-stone-700 cursor-not-allowed shadow-none'
+                          : 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-lg shadow-amber-500/15 cursor-pointer'
+                      }`}
                     >
                       <Plus className="w-4 h-4 stroke-[2.5]" />
-                      <span>Add to Order</span>
+                      <span>{atPlateLimit ? 'Daily limit reached' : 'Add to Order'}</span>
                     </button>
                   )}
                 </div>
