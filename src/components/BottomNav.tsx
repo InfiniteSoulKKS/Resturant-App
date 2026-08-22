@@ -140,13 +140,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, u
     });
   }
 
-  // ── API Inspector (everyone) ──
-  items.push({
-    tab: 'spring_backend',
-    label: 'API',
-    icon: <Terminal className="w-5 h-5" />,
-    highlightColor: 'text-emerald-400',
-  });
+  // ── API Inspector (super admin only) ──
+  if (isSuperAdmin) {
+    items.push({
+      tab: 'spring_backend',
+      label: 'API',
+      icon: <Terminal className="w-5 h-5" />,
+      highlightColor: 'text-emerald-400',
+    });
+  }
 
   return (
     <nav className="md:hidden bg-[#0c0a09]/95 backdrop-blur-lg fixed bottom-0 w-full z-40 flex justify-around items-center px-2 h-16 border-t border-stone-800/80 shadow-2xl">

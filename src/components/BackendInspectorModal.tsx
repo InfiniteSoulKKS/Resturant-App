@@ -1,13 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import {
-  SPRING_BOOT_CONTROLLER_CODE,
-  SPRING_SECURITY_CONFIG_CODE,
-  PAYMENT_GATEWAY_SERVICE_CODE,
-  POSTGRESQL_SCHEMA_SQL,
-} from '../data/initialData';
 
 export const BackendInspectorModal: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'controller' | 'security' | 'gateway' | 'postgres' | 'pom_xml' | 'standalone_guide' | 'live_test'>('standalone_guide');
+  const [activeTab, setActiveTab] = useState<'standalone_guide' | 'live_test'>('standalone_guide');
   const [healthStatus, setHealthStatus] = useState<any>(null);
   const [apiLogs, setApiLogs] = useState<Array<{ time: string; msg: string; type: string }>>([]);
 
@@ -34,7 +28,6 @@ export const BackendInspectorModal: React.FC = () => {
   const handleTestRealtimePayment = async () => {
     addLog('POST /api/v1/payments/process-realtime initiating Stripe test...', 'info');
     try {
-      // The payment helpers now require authentication — attach the stored JWT.
       const token = localStorage.getItem('savory_token');
       const res = await fetch('/api/v1/payments/process-realtime', {
         method: 'POST',
@@ -50,13 +43,9 @@ export const BackendInspectorModal: React.FC = () => {
         }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        addLog(`Payment failed: ${data.message || res.status}`, 'warn');
-        return;
-      }
-      addLog(`Payment Success: ${data.transactionId} | Gateway: STRIPE | Amount: $${data.amountPaid}`, 'success');
-    } catch (err) {
-      addLog('Payment API Failed', 'warn');
+      addLog(`Stripe response: ${JSON.stringify(data).slice(0, 120)}`, res.ok ? 'success' : 'warn');
+    } catch (err: any) {
+      addLog(`Stripe error: ${err.message}`, 'warn');
     }
   };
 
@@ -73,10 +62,10 @@ export const BackendInspectorModal: React.FC = () => {
               </span>
             </div>
             <h2 className="text-2xl font-bold font-mono mt-1 text-white">
-              SavoryStay Java Backend & Database Engine
+              SavoryStay Backend Inspector
             </h2>
             <p className="text-slate-400 text-xs font-mono mt-0.5">
-              Spring Security JWT Auth, Stripe/PayPal payment integrations, and MySQL persistence.
+              API health check and project structure overview.
             </p>
           </div>
 
@@ -85,7 +74,6 @@ export const BackendInspectorModal: React.FC = () => {
               onClick={handleTestRealtimePayment}
               className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-mono text-xs rounded-lg transition-all shadow cursor-pointer flex items-center gap-1.5"
             >
-              <span className="material-symbols-outlined text-sm">bolt</span>
               Trigger Real-Time Webhook Test
             </button>
           </div>
@@ -107,7 +95,7 @@ export const BackendInspectorModal: React.FC = () => {
           </div>
           <div>
             <span className="text-slate-500 block">Realtime Stream:</span>
-            <span className="text-emerald-400 font-bold">WebSocket & Firestore Sync</span>
+            <span className="text-emerald-400 font-bold">SSE + Kafka Events</span>
           </div>
         </div>
       </div>
@@ -122,47 +110,7 @@ export const BackendInspectorModal: React.FC = () => {
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
           }`}
         >
-          📦 Project Structure & Setup Guide
-        </button>
-        <button
-          onClick={() => setActiveTab('security')}
-          className={`px-4 py-2 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap ${
-            activeTab === 'security'
-              ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-          }`}
-        >
-          SecurityConfig.java (Spring Security)
-        </button>
-        <button
-          onClick={() => setActiveTab('gateway')}
-          className={`px-4 py-2 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap ${
-            activeTab === 'gateway'
-              ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-          }`}
-        >
-          PaymentGatewayService.java
-        </button>
-        <button
-          onClick={() => setActiveTab('controller')}
-          className={`px-4 py-2 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap ${
-            activeTab === 'controller'
-              ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-          }`}
-        >
-          CulinaryOrderController.java
-        </button>
-        <button
-          onClick={() => setActiveTab('postgres')}
-          className={`px-4 py-2 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap ${
-            activeTab === 'postgres'
-              ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-          }`}
-        >
-          schema.sql (MySQL DDL)
+          Project Structure & Setup Guide
         </button>
         <button
           onClick={() => setActiveTab('live_test')}
@@ -180,75 +128,32 @@ export const BackendInspectorModal: React.FC = () => {
       {activeTab === 'standalone_guide' && (
         <div className="bg-slate-950 text-slate-200 rounded-xl p-5 font-mono text-xs overflow-y-auto border border-slate-800 shadow-inner max-h-[500px] space-y-4">
           <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300">
-            <h4 className="font-bold text-sm">📁 Standalone Java Project Directory Created: <code className="bg-slate-900 px-2 py-0.5 rounded text-white">/springboot-backend</code></h4>
+            <h4 className="font-bold text-sm">Spring Boot Backend</h4>
             <p className="text-[11px] text-amber-200/80 mt-1">
-              A complete, independent Maven Spring Boot project has been created inside your workspace. You can export this repository or copy the folder directly to open in IntelliJ IDEA, Eclipse, or VS Code.
+              The backend is deployed on Oracle Cloud and running at port 8080.
             </p>
           </div>
 
           <div className="space-y-2">
-            <h5 className="font-bold text-indigo-400 text-sm">📂 Directory Structure Overview:</h5>
-            <pre className="bg-slate-900 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-300">
-{`springboot-backend/
-├── pom.xml                                   # Spring Boot 3.2, Security, Stripe & PayPal Maven POM
-├── README.md                                  # Comprehensive setup & API guide
-└── src/
-    └── main/
-        ├── java/com/savorystay/
-        │   ├── SavoryStayApplication.java    # Application Entrypoint
-        │   ├── controller/                   # AuthController & PaymentController
-        │   ├── entity/                       # User, Order, Payment JPA Entities
-        │   ├── repository/                   # UserRepository, OrderRepository, PaymentRepository
-        │   ├── security/                     # JwtTokenProvider, JwtAuthFilter, SecurityConfig
-        │   └── service/                      # PaymentGatewayService (Stripe & PayPal SDKs)
-        └── resources/
-            ├── application.yml                # Spring Boot Config & Keys
-            └── schema.sql                     # PostgreSQL Table Creation DDL`}
-            </pre>
+            <h5 className="font-bold text-indigo-400 text-sm">Health Endpoints:</h5>
+            <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-200 space-y-1">
+              <p><span className="text-slate-400">GET</span> <span className="text-indigo-300">/api/v1/health</span> - Backend status</p>
+              <p><span className="text-slate-400">GET</span> <span className="text-indigo-300">/api/v1/health/mail</span> - SMTP connectivity</p>
+              <p><span className="text-slate-400">GET</span> <span className="text-indigo-300">/api/v1/health/redis</span> - Redis latency</p>
+              <p><span className="text-slate-400">GET</span> <span className="text-indigo-300">/api/v1/health/kafka</span> - Kafka broker status</p>
+            </div>
           </div>
 
           <div className="space-y-2">
-            <h5 className="font-bold text-emerald-400 text-sm">⚡ Quick Command Line Execution:</h5>
+            <h5 className="font-bold text-emerald-400 text-sm">Demo Accounts:</h5>
             <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-200 space-y-1">
-              <p className="text-slate-400"># Navigate into backend project:</p>
-              <p className="text-indigo-300">cd springboot-backend</p>
-              <p className="text-slate-400 mt-2"># Build Maven package:</p>
-              <p className="text-indigo-300">mvn clean package</p>
-              <p className="text-slate-400 mt-2"># Run Spring Boot application (Default Port 8080):</p>
-              <p className="text-emerald-300">mvn spring-boot:run</p>
+              <p><span className="text-emerald-300">superadmin</span> / SuperAdmin@123</p>
+              <p><span className="text-emerald-300">savoryadmin</span> / Admin@123</p>
+              <p><span className="text-emerald-300">savorymanager</span> / Manager@123</p>
+              <p><span className="text-emerald-300">savorychef</span> / Chef@123</p>
+              <p><span className="text-emerald-300">customer</span> / Customer@123</p>
             </div>
           </div>
-        </div>
-      )}
-      {activeTab === 'security' && (
-        <div className="bg-slate-950 text-slate-200 rounded-xl p-md font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner max-h-[500px]">
-          <pre className="leading-relaxed">
-            <code>{SPRING_SECURITY_CONFIG_CODE}</code>
-          </pre>
-        </div>
-      )}
-
-      {activeTab === 'gateway' && (
-        <div className="bg-slate-950 text-slate-200 rounded-xl p-md font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner max-h-[500px]">
-          <pre className="leading-relaxed">
-            <code>{PAYMENT_GATEWAY_SERVICE_CODE}</code>
-          </pre>
-        </div>
-      )}
-
-      {activeTab === 'controller' && (
-        <div className="bg-slate-950 text-slate-200 rounded-xl p-md font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner max-h-[500px]">
-          <pre className="leading-relaxed">
-            <code>{SPRING_BOOT_CONTROLLER_CODE}</code>
-          </pre>
-        </div>
-      )}
-
-      {activeTab === 'postgres' && (
-        <div className="bg-slate-950 text-slate-200 rounded-xl p-md font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner max-h-[500px]">
-          <pre className="leading-relaxed">
-            <code>{POSTGRESQL_SCHEMA_SQL}</code>
-          </pre>
         </div>
       )}
 

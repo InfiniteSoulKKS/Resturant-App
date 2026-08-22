@@ -239,18 +239,20 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Java Backend Inspector */}
-          <button
-            onClick={() => setActiveTab('spring_backend')}
-            className={`text-xs font-mono py-1.5 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap border ${
-              activeTab === 'spring_backend'
-                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-                : 'bg-stone-900 text-stone-400 hover:text-stone-200 border-stone-800'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Spring</span>
-          </button>
+          {/* Java Backend Inspector — super admin only */}
+          {isSuperAdmin && (
+            <button
+              onClick={() => setActiveTab('spring_backend')}
+              className={`text-xs font-mono py-1.5 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap border ${
+                activeTab === 'spring_backend'
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                  : 'bg-stone-900 text-stone-400 hover:text-stone-200 border-stone-800'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Spring</span>
+            </button>
+          )}
         </nav>
 
         {/* Controls */}
@@ -308,9 +310,11 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          <button onClick={() => setActiveTab('spring_backend')} className="md:hidden p-2 rounded-xl text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20">
-            <Terminal className="w-5 h-5" />
-          </button>
+          {isSuperAdmin && (
+            <button onClick={() => setActiveTab('spring_backend')} className="md:hidden p-2 rounded-xl text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20">
+              <Terminal className="w-5 h-5" />
+            </button>
+          )}
         </div>
       </div>
 
