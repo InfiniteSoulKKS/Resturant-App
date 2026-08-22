@@ -265,10 +265,10 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
   /** Time slots for the selected pre-order date, bounded by operating hours. */
   const timeSlotsForDate = (): string[] => {
     const opt = preOrderDates.find((d) => d.date === selectedPreOrderDate);
-    if (!opt) return ['10:00 AM', '12:30 PM', '02:00 PM', '07:00 PM'];
+    if (!opt) return ['12:00 PM', '02:00 PM', '05:00 PM', '07:00 PM'];
     const open = toMinutes(opt.openTime);
     const close = toMinutes(opt.closeTime);
-    const candidates = ['10:00 AM', '12:30 PM', '02:00 PM', '04:30 PM', '07:00 PM', '09:00 PM'];
+    const candidates = ['11:00 AM', '12:00 PM', '12:30 PM', '01:00 PM', '02:00 PM', '03:00 PM', '04:30 PM', '05:00 PM', '06:00 PM', '07:00 PM', '08:00 PM', '09:00 PM', '10:00 PM'];
     return candidates.filter((c) => {
       const min = toMinutes(c);
       return (open < 0 || min >= open) && (close < 0 || min < close);
@@ -292,8 +292,11 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
    *  so a PRE_ORDER never inherits a PICKUP label (and vice-versa). */
   const switchOrderType = (t: 'PICKUP' | 'DINE_IN' | 'PRE_ORDER') => {
     setOrderType(t);
-    if (t === 'PRE_ORDER') setPickupTime('10:00 AM');
-    else if (t === 'PICKUP') setPickupTime('30 Mins (Ready by 07:45 PM)');
+    if (t === 'PRE_ORDER') {
+      // Pick the first available time slot within operating hours (default 12:00 PM)
+      const slots = timeSlotsForDate();
+      setPickupTime(slots.length > 0 ? slots[0] : '12:00 PM');
+    } else if (t === 'PICKUP') setPickupTime('30 Mins (Ready by 07:45 PM)');
     else if (t === 'DINE_IN') {
       // Reset DINE_IN time slot to first available
       setDineInTimeSlot(restaurantSettings?.dineinTimeSlots?.[0] || '12:00 PM');

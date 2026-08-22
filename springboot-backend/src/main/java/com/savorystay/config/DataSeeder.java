@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -167,18 +168,58 @@ public class DataSeeder implements CommandLineRunner {
         }
         if (dishAvailabilityRepository.findByRestaurantId(restaurantId).isEmpty()) {
             String p = restaurantId;
-            List<DishAvailability> avail = List.of(
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_1").dayOfWeek(1).build(),
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_1").dayOfWeek(3).build(),
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_1").dayOfWeek(5).build(),
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_15").dayOfWeek(1).build(),
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_15").dayOfWeek(2).build(),
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_15").dayOfWeek(3).build(),
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_15").dayOfWeek(4).build(),
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_15").dayOfWeek(5).build(),
-                    DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_15").dayOfWeek(6).build()
-            );
+            List<DishAvailability> avail = new ArrayList<>();
+            // MI_1 Butter Chicken — Mon, Wed, Fri
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_1").dayOfWeek(1).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_1").dayOfWeek(3).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_1").dayOfWeek(5).build());
+            // MI_2 Paneer Tikka — Tue, Thu, Sat
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_2").dayOfWeek(2).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_2").dayOfWeek(4).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_2").dayOfWeek(6).build());
+            // MI_6 Chicken Seekh Kebab — Tue, Wed, Thu, Sat
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_6").dayOfWeek(2).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_6").dayOfWeek(3).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_6").dayOfWeek(4).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_6").dayOfWeek(6).build());
+            // MI_7 Crispy Paneer 65 — Mon, Wed, Fri
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_7").dayOfWeek(1).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_7").dayOfWeek(3).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_7").dayOfWeek(5).build());
+            // MI_8 Tandoori Prawns — Thu, Fri, Sat
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_8").dayOfWeek(4).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_8").dayOfWeek(5).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_8").dayOfWeek(6).build());
+            // MI_9 Dal Makhani — Mon-Sat (daily weekday)
+            for (int d = 1; d <= 6; d++) {
+                avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_9").dayOfWeek(d).build());
+            }
+            // MI_10 Mutton Rogan Josh — Mon, Tue, Fri
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_10").dayOfWeek(1).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_10").dayOfWeek(2).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_10").dayOfWeek(5).build());
+            // MI_12 Hyderabadi Biryani — Wed, Fri, Sat
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_12").dayOfWeek(3).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_12").dayOfWeek(5).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_12").dayOfWeek(6).build());
+            // MI_14 Fish Amritsari — Tue, Thu
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_14").dayOfWeek(2).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_14").dayOfWeek(4).build());
+            // MI_15 Veg Biryani — Mon-Sat
+            for (int d = 1; d <= 6; d++) {
+                avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_15").dayOfWeek(d).build());
+            }
+            // MI_20 Rasmalai — Wed, Fri, Sat (weekend dessert)
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_20").dayOfWeek(3).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_20").dayOfWeek(5).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_20").dayOfWeek(6).build());
+            // MI_22 Gajar Ka Halwa — Mon, Tue, Wed (winter special)
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_22").dayOfWeek(1).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_22").dayOfWeek(2).build());
+            avail.add(DishAvailability.builder().restaurantId(restaurantId).menuItemId(p + "_MI_22").dayOfWeek(3).build());
+            // All other items (MI_3,4,5,11,13,16-19,21,23-25) have no entries = available every day
             dishAvailabilityRepository.saveAll(avail);
+            log.info("DataSeeder: seeded {} dish availability entries for {}", avail.size(), restaurantId);
         }
     }
 
