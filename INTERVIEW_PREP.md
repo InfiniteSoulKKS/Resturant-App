@@ -1,7 +1,7 @@
 # SavoryStay — Technical Deep-Dive & Interview Preparation
 
-> A comprehensive technical guide covering architecture, system design patterns,  
-> detailed flows, database design, security model, and key decisions made  
+> A comprehensive technical guide covering architecture, system design patterns,
+> detailed flows, database design, security model, and key decisions made
 > during the implementation of the SavoryStay restaurant operations platform.
 
 ---
@@ -22,7 +22,7 @@
 12. [Real-Time Updates (SSE)](#12-real-time-updates-sse)
 13. [Transactional Outbox Pattern](#13-transactional-outbox-pattern)
 14. [Key Design Patterns Used](#14-key-design-patterns-used)
-15. [Testing Strategy](#15-testing-strategy)
+15. [Testing Strategy](#15-testing-testing-strategy)
 16. [Scalability Considerations](#16-scalability-considerations)
 17. [Common Interview Questions & Answers](#17-common-interview-questions--answers)
 
@@ -32,7 +32,7 @@
 
 ### What is SavoryStay?
 
-SavoryStay is a **multi-tenant restaurant operations platform** that handles the complete lifecycle from customer ordering through kitchen preparation to payment and completion. It supports multiple restaurants under a single deployment, each with isolated data, staff, menus, and customers.
+SavoryStay is a **multi-tenant restaurant operations platform** that handles the complete lifecycle from customer ordering through kitchen preparation to payment and completion. It supports multiple restaurants under a single deployment, each with isolated data, staff, menus, customers, table configurations, and operational supplies.
 
 ### Tech Stack
 
@@ -121,6 +121,8 @@ Each layer has a single responsibility:
 | **Circuit Breaker Concept** | Idempotency keys | Prevent duplicate payments/events |
 | **Audit Trail** | `AuditService` | Append-only record of all mutations |
 | **Multi-Tenancy** | `TenantContext` + `TenantContextFilter` | Data isolation per restaurant |
+| **Entity Configuration** | `RestaurantSettings` | Per-restaurant table/time-slot config |
+| **Scheduled Cleanup** | `OutboxCleanupScheduler` | Automatic old-event purging |
 
 ### 2.3 Design Decisions & Trade-offs
 
@@ -191,7 +193,7 @@ Every repository query filters by `restaurant_id`:
 // IngredientRepository
 List<Ingredient> findByRestaurantIdAndActiveTrue(String restaurantId);
 
-// MenuItemRepository  
+// MenuItemRepository
 List<MenuItem> findByRestaurantIdAndStatus(String restaurantId, String status);
 
 // OrderRepository
@@ -207,7 +209,7 @@ List<Order> findByRestaurantIdAndOrderStatus(String restaurantId, String status)
 public Order getOrder(String orderId) {
     Order order = orderRepository.findById(orderId)
         .orElseThrow(() -> new RuntimeException("Order not found"));
-    
+
     if (!order.getRestaurantId().equals(TenantContext.getCurrentRestaurant())) {
         throw new SecurityException("Access denied — cross-tenant violation");
     }
@@ -260,18 +262,6 @@ When customer switches restaurant:
       │                    │                    │
       │  {token, user}     │                    │
       │◄───────────────────│                    │
-      │                    │                    │
-      │  GET /api/v1/...   │                    │
-      │  Authorization:    │                    │
-      │  Bearer <jwt>      │                    │
-      ├───────────────────►│                    │
-      │                    │  JwtAuthFilter     │
-      │                    │  validates token   │
-      │                    │  sets SecurityCtx  │
-      │                    │  TenantContext     │
-      │                    │                    │
-      │  200 OK            │                    │
-      │◄───────────────────│                    │
 ```
 
 ### 4.2 OTP Flow (Passwordless Login)
@@ -302,6 +292,8 @@ When customer switches restaurant:
 │           │◄───────────────────────────│  user     │
 └──────────┘                            └──────────┘
 ```
+
+**Key OTP behavior**: the API always returns the OTP code in the response (`demoOtp` field) — even when real email is sent. This is a deliberate fallback for spam-filtered emails. The frontend auto-fills the OTP field and shows an amber banner with the code.
 
 ### 4.3 Role-Based Authorization
 
@@ -368,7 +360,7 @@ When customer switches restaurant:
 
 ```java
 public class OrderStateMachine {
-    
+
     private static final Map<String, Set<String>> TRANSITIONS = Map.of(
         "NEW",          Set.of("PREPARING", "CANCELLED", "DECLINED"),
         "PREPARING",    Set.of("PACKED_READY", "CANCELLED", "DECLINED"),
@@ -377,7 +369,7 @@ public class OrderStateMachine {
         "CANCELLED",    Set.of(),  // terminal
         "DECLINED",     Set.of()   // terminal
     );
-    
+
     public static void validate(String from, String to) {
         if (!TRANSITIONS.getOrDefault(from, Set.of()).contains(to)) {
             throw new IllegalStateException(
@@ -423,26 +415,26 @@ Order:  NEW (payment = PENDING)
 ```java
 public Order confirmPayment(String orderId, String gateway, BigDecimal amount) {
     Order order = getOrder(orderId);
-    
+
     // Idempotent: already paid
     if ("PAID".equals(order.getPaymentStatus())) {
         return order; // return existing, don't reprocess
     }
-    
+
     // CASH orders: don't process online
     if ("CASH".equalsIgnoreCase(gateway)) {
         throw new IllegalStateException("Cash orders are paid at counter");
     }
-    
+
     // Amount validation
     if (amount.compareTo(order.getTotalAmount()) != 0) {
         throw new IllegalArgumentException("Amount mismatch");
     }
-    
+
     // Create payment record
     Payment payment = createPayment(order, gateway, amount);
     order.setPaymentStatus("PAID");
-    
+
     return order;
 }
 ```
@@ -571,7 +563,7 @@ Rule 2: Is the dish available on Day Y?
     → Check DishSlotOverride (one-off exceptions)
 
 Rule 3: Is the order within the cutoff window?
-    → PreOrderSettings has cutoffTime (e.g., 2:00 PM)
+    → PreOrderSettings has cutoffTime (e.g., 9:00 AM)
     → Orders placed after cutoff are for next available day
 
 Rule 4: Is it within the booking horizon?
@@ -591,10 +583,10 @@ Cake     ❌    ❌    ❌    ✅    ✅    ✅    ✅
 
 Today: Wednesday
 Max advance: 7 days
-Cutoff: 2:00 PM
+Cutoff: 9:00 AM
 
-If now = 3:00 PM → Wednesday unavailable, earliest = Thursday
-If now = 1:00 PM → Wednesday available (if open)
+If now = 10:00 AM → Wednesday unavailable, earliest = Thursday
+If now = 8:00 AM → Wednesday available (if open)
 ```
 
 ### 7.3 Pre-Order Availability Service Flow
@@ -602,35 +594,35 @@ If now = 1:00 PM → Wednesday available (if open)
 ```java
 public DishAvailabilityResponse checkAvailability(
         String dishId, LocalDate date, LocalTime time) {
-    
+
     // 1. Restaurant open?
     if (!restaurantService.isOpen(restaurantId, date.getDayOfWeek())) {
         return unavailable("Restaurant closed");
     }
-    
+
     // 2. Holiday?
     if (preOrderConfigService.isHoliday(restaurantId, date)) {
         return unavailable("Holiday");
     }
-    
+
     // 3. Dish available on this day?
     if (!dishAvailabilityService.isAvailable(dishId, date)) {
         return unavailable("Dish not scheduled");
     }
-    
+
     // 4. Slot override?
-    Optional<DishSlotOverride> override = 
+    Optional<DishSlotOverride> override =
         dishSlotOverrideRepository.findByDishIdAndDate(dishId, date);
     if (override.isPresent()) {
-        return override.get().isAvailable() 
+        return override.get().isAvailable()
             ? available() : unavailable("Override: unavailable");
     }
-    
+
     // 5. Within cutoff?
     if (preOrderConfigService.isPastCutoff(restaurantId, date, time)) {
         return unavailable("Past cutoff time");
     }
-    
+
     return available();
 }
 ```
@@ -644,19 +636,20 @@ public DishAvailabilityResponse checkAvailability(
 ```
 Restaurant
     │
-    ├── Ingredient #101 (Rice)
-    │       ├── MenuItemIngredient → Biryani (500g)
-    │       ├── MenuItemIngredient → Pulao (300g)
-    │       ├── InventoryLedger → current stock: 25 kg
+    ├── Ingredient #101 (Chicken)
+    │       ├── MenuItemIngredient → Biryani (250g)
+    │       ├── MenuItemIngredient → Butter Chicken (250g)
+    │       ├── InventoryLedger → current stock: 18 kg
     │       └── Forecast → aggregated demand
     │
-    ├── Ingredient #102 (Chicken)
+    ├── Ingredient #102 (Basmati Rice)
     │       ├── MenuItemIngredient → Biryani (250g)
-    │       ├── MenuItemIngredient → Butter Chicken (300g)
-    │       └── InventoryLedger → current stock: 18 kg
+    │       ├── MenuItemIngredient → Pulao (200g)
+    │       └── InventoryLedger → current stock: 30 kg
     │
-    └── Ingredient #103 (Ghee)
-            └── ...
+    └── Ingredient #103 (Handwash Liquid)
+            ├── Operational supply
+            └── InventoryLedger → current stock: 5000 ml
 ```
 
 **Key principle**: Ingredient ID is the canonical identity, NOT the name.
@@ -665,7 +658,7 @@ Restaurant
 
 ```java
 public class IngredientNormalization {
-    
+
     // "  Chicken   Breast  " → "chicken breast"
     // "RICE" → "rice"
     // "riCe" → "rice"
@@ -701,21 +694,58 @@ Adjustment:
     → Reason: "Weekly chicken delivery"
 ```
 
-### 8.4 Ingredient Forecast Aggregation
+### 8.4 Plate Availability Tracking
+
+Each menu item can have a `dailyPlateCount` — the maximum number of plates that can be ordered per day:
+
+```
+MenuItem: Butter Chicken (dailyPlateCount: 30)
+
+Orders today:
+    Order 1: 2 plates  → remaining: 28
+    Order 2: 1 plate   → remaining: 27
+    Order 3: 3 plates  → remaining: 24
+
+When remaining = 0:
+    → Dish shows as "Sold Out" to new customers
+    → Existing confirmed orders are NOT affected
+```
+
+### 8.5 Table Availability Tracking
+
+```
+Restaurant Settings:
+    2-Seater: 5 tables
+    4-Seater: 4 tables
+    6-Seater: 2 tables
+
+For date=2026-08-22, timeSlot="7:00 PM":
+    Existing DINE_IN orders at 7:00 PM:
+        2 guests → 2 tables booked
+        4 guests → 1 table booked
+        6 guests → 1 table booked
+
+Availability:
+    2-Seater: 5 - 2 = 3 remaining
+    4-Seater: 4 - 1 = 3 remaining
+    6-Seater: 2 - 1 = 1 remaining
+```
+
+### 8.6 Ingredient Forecast Aggregation
 
 ```
 Tomorrow's pre-orders:
-    10x Biryani (requires 500g Rice each)
-     5x Pulao   (requires 300g Rice each)
+    10x Biryani (requires 250g Rice each)
+     5x Pulao   (requires 200g Rice each)
      3x Risotto (requires 400g Rice each)
 
 Forecast (by ingredient ID):
-    Rice #101: (10 × 500g) + (5 × 300g) + (3 × 400g)
-             = 5000g + 1500g + 1200g
-             = 7.7 kg
+    Rice #101: (10 × 250g) + (5 × 200g) + (3 × 400g)
+             = 2500g + 1000g + 1200g
+             = 4.7 kg
 
-    Current stock: 25 kg
-    After production: 25 - 7.7 = 17.3 kg
+    Current stock: 30 kg
+    After production: 30 - 4.7 = 25.3 kg
     Shortfall: 0 (sufficient)
 ```
 
@@ -748,7 +778,7 @@ Forecast (by ingredient ID):
 ```java
 @Configuration
 public class KafkaTopicConfig {
-    
+
     @Bean
     public NewTopic otpTopic() {
         return TopicBuilder.name("savorystay.otp")
@@ -756,7 +786,7 @@ public class KafkaTopicConfig {
             .replicas(1)
             .build();
     }
-    
+
     // Retry topic with backoff
     // DLT (Dead Letter Topic) for failed messages
 }
@@ -791,12 +821,14 @@ Step 3: Event written to outbox table (same transaction)
 Step 4: Transaction commits
 Step 5: Separate poller reads outbox and publishes to Kafka
 Step 6: Published event marked as sent in outbox
+Step 7: OutboxCleanupScheduler purges events older than 7 days
 ```
 
 This guarantees:
 - If the transaction succeeds, the event WILL eventually be published
 - If the transaction fails, no event is created
 - Kafka outage doesn't lose events
+- Old events are automatically cleaned up
 
 ---
 
@@ -835,6 +867,8 @@ Pre-order configuration changed
 ┌──────────────────────────────────────────────────────────────────┐
 │                        Restaurant                                 │
 │  id, name, description, phone, email, address, config           │
+│  restaurant_settings (table_config, pickup_time_slots,           │
+│                       dinein_time_slots, total_tables)           │
 └──────────┬──────────────────────────┬────────────────────────────┘
            │                          │
            │ has many                 │ has many
@@ -845,6 +879,7 @@ Pre-order configuration changed
 │  email, phone,       │    │  description, category│
 │  passwordHash, role  │    │  status, isVeg,       │
 └──────────┬──────────┘    │  spiceLevel, isSoldOut│
+           │                │  dailyPlateCount      │
            │                └──────┬───────────────┘
            │                       │ has many
            │                       ▼
@@ -862,7 +897,9 @@ Pre-order configuration changed
            │              │  id, restaurant_id,│
            │              │  display_name,     │
            │              │  normalized_name,  │
-           │              │  base_unit, active │
+           │              │  unit, category,   │
+           │              │  stock_quantity,   │
+           │              │  reorder_level     │
            │              └───────────────────┘
            │
            │ places many
@@ -900,30 +937,30 @@ Pre-order configuration changed
 
 ```sql
 -- Ingredient uniqueness per restaurant
-ALTER TABLE ingredients 
-ADD CONSTRAINT uq_ingredient_restaurant_name 
+ALTER TABLE ingredients
+ADD CONSTRAINT uq_ingredient_restaurant_name
 UNIQUE (restaurant_id, normalized_name);
 
 -- No duplicate ingredients in a recipe
-ALTER TABLE menu_item_ingredients 
-ADD CONSTRAINT uq_recipe_ingredient 
+ALTER TABLE menu_item_ingredients
+ADD CONSTRAINT uq_recipe_ingredient
 UNIQUE (menu_item_id, ingredient_id);
 
 -- Index for fast tenant queries
-CREATE INDEX idx_orders_restaurant_status 
+CREATE INDEX idx_orders_restaurant_status
 ON orders(restaurant_id, order_status);
 
-CREATE INDEX idx_menu_items_restaurant 
+CREATE INDEX idx_menu_items_restaurant
 ON menu_items(restaurant_id, status);
 
-CREATE INDEX idx_ingredients_restaurant_active 
+CREATE INDEX idx_ingredients_restaurant_active
 ON ingredients(restaurant_id, active);
 
 -- Audit trail indexes
-CREATE INDEX idx_audit_restaurant_recorded 
+CREATE INDEX idx_audit_restaurant_recorded
 ON audit_trail(restaurant_id, recorded_at DESC);
 
-CREATE INDEX idx_audit_entity 
+CREATE INDEX idx_audit_entity
 ON audit_trail(entity_type, entity_id);
 ```
 
@@ -964,6 +1001,15 @@ ON audit_trail(entity_type, entity_id);
 
 **Decision**: SSE was chosen because order updates are one-way (server pushes status changes). WebSocket would add unnecessary complexity.
 
+### 12.3 SSE Events
+
+| Event Type | Payload | Purpose |
+|---|---|---|
+| `order.status.changed` | orderId, fromStatus, toStatus | Refresh order list / kitchen queue |
+| `plate-count.updated` | menuItemId, dailyPlateCount, remainingPlates | Update cart plate indicators |
+| `table-availability.updated` | restaurantId, timeSlot, bookedByGuests | Refresh checkout table counts |
+| `notification.new` | notificationId, title, message | Update notification bell |
+
 ---
 
 ## 13. Transactional Outbox Pattern
@@ -994,7 +1040,7 @@ public Order placeOrder(Order order) {
 }
 
 // Later, a poller reads unsent outbox events:
-@Scheduled(fixedDelay = 5000)
+@Scheduled(fixedDelay = 3000)
 public void pollOutbox() {
     List<OutboxEvent> unsent = outboxRepo.findBySentFalse();
     for (OutboxEvent event : unsent) {
@@ -1002,6 +1048,12 @@ public void pollOutbox() {
         event.setSent(true);
         outboxRepo.save(event);
     }
+}
+
+// Cleanup: events older than 7 days are purged every 6 hours
+@Scheduled(cron = "0 0 */6 * * *")
+public void purgeOldEvents() {
+    outboxRepo.deleteOldCompletedEvents(cutoff);
 }
 ```
 
@@ -1014,6 +1066,7 @@ public void pollOutbox() {
 | DB commit fails | No event recorded (atomic) |
 | Poller crashes | Next poll picks up unsent events |
 | Kafka accepts but doesn't persist | Outbox stays unsent, retried |
+| Old events accumulate | OutboxCleanupScheduler purges after 7 days |
 
 ---
 
@@ -1044,12 +1097,12 @@ public Payment confirmPayment(String orderId, String gateway, BigDecimal amount)
 public void consumeInventory(String ingredientId, BigDecimal quantity) {
     Ingredient ingredient = ingredientRepository.findById(ingredientId)
         .orElseThrow();
-    
+
     BigDecimal newStock = ingredient.getCurrentStock().subtract(quantity);
     if (newStock.compareTo(BigDecimal.ZERO) < 0) {
         throw new InsufficientInventoryException("Not enough stock");
     }
-    
+
     ingredient.setCurrentStock(newStock);
     ingredientRepository.save(ingredient);
     // JPA @Version field prevents concurrent overwrites
@@ -1089,7 +1142,7 @@ Read path:  DashboardController → Aggregate queries → DTO response
 
 Dashboard doesn't load full Order entities.
 It uses SQL aggregation:
-  SELECT order_status, COUNT(*) 
+  SELECT order_status, COUNT(*)
   FROM orders WHERE restaurant_id = ? AND DATE(created_at) = CURDATE()
   GROUP BY order_status
 ```
@@ -1107,7 +1160,7 @@ It uses SQL aggregation:
          ╱──────╲
         ╱  Integration ╲  ← 18 Testcontainers tests
        ╱────────────────╲
-      ╱    Unit Tests     ╲ ← 234 unit tests
+      ╱    Unit Tests     ╲ ← 245 unit tests
      ╱──────────────────────╲
 ```
 
@@ -1115,9 +1168,9 @@ It uses SQL aggregation:
 
 | Category | Count | What's Tested |
 |----------|-------|---------------|
-| **Unit** | 234 | Services, state machine, DTOs, security |
+| **Unit** | 245 | Services, state machine, DTOs, security, menu SSE |
 | **Integration** | 18 | Full Spring context + real MySQL via Testcontainers |
-| **Total** | **252** | |
+| **Total** | **263** | |
 
 ### 15.3 Key Test Scenarios
 
@@ -1141,13 +1194,17 @@ It uses SQL aggregation:
 @Test void concurrentDeduction() // Two orders simultaneously → only one succeeds
 @Test void cancelReleasesStock() // Cancelled order returns inventory
 
+// Menu SSE tests
+@Test void plateCountEvent()     // SSE event includes dailyPlateCount + remainingPlates
+@Test void unlimitedPlates()     // null dailyPlateCount → no plate limit
+
 // Integration tests (Testcontainers)
 @SpringBootTest
 @Testcontainers
 class RefundAuditIntegrationTest {
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-    
+
     @Test void fullRefundLifecycle()    // Real DB, real transactions
     @Test void auditTrailQuery()        // Complex aggregation queries
     @Test void paymentIdempotency()     // End-to-end idempotency
@@ -1186,17 +1243,17 @@ class RefundAuditIntegrationTest {
 
 ```sql
 -- Dashboard summary: aggregate query, not application-side loop
-SELECT 
+SELECT
     order_status,
     COUNT(*) as count,
     SUM(total_amount) as revenue
-FROM orders 
-WHERE restaurant_id = ? 
+FROM orders
+WHERE restaurant_id = ?
   AND DATE(created_at) = CURDATE()
 GROUP BY order_status;
 
 -- Ingredient forecast: aggregate by ingredient_id, not name
-SELECT 
+SELECT
     i.id,
     i.display_name,
     SUM(mii.quantity_per_unit * oi.quantity) as total_required
@@ -1206,6 +1263,14 @@ JOIN ingredients i ON mii.ingredient_id = i.id
 WHERE i.restaurant_id = ?
   AND i.active = true
 GROUP BY i.id, i.display_name;
+
+-- Table availability: count DINE_IN orders per guest size
+SELECT guests, COUNT(*) as booked
+FROM orders
+WHERE restaurant_id = ?
+  AND order_type = 'DINE_IN'
+  AND time_slot LIKE '%2026-08-22 7:00 PM%'
+GROUP BY guests;
 ```
 
 ---
@@ -1224,10 +1289,16 @@ GROUP BY i.id, i.display_name;
 > Every request goes through `TenantContextFilter` which extracts `restaurantId` from the JWT token. This is stored in a `ThreadLocal` via `TenantContext`. Every repository query filters by `restaurantId`. We NEVER trust the client-provided `restaurantId` — it always comes from the authenticated token. Cross-tenant access attempts return 403/400.
 
 **Q: Explain the transactional outbox pattern you used.**
-> The problem: if we save an order and then publish to Kafka, and Kafka is down, we lose the event. The solution: we write the event to an `outbox_event` table in the same database transaction as the order. A separate `OutboxPoller` (scheduled task) reads unsent events and publishes them to Kafka. This guarantees exactly-once delivery semantics without distributed transactions.
+> The problem: if we save an order and then publish to Kafka, and Kafka is down, we lose the event. The solution: we write the event to an `outbox_event` table in the same database transaction as the order. A separate `OutboxPoller` (scheduled task every 3 seconds) reads unsent events and publishes them to Kafka. Old events are cleaned up by `OutboxCleanupScheduler` every 6 hours. This guarantees exactly-once delivery semantics without distributed transactions.
 
 **Q: How would you design the pre-order availability system?**
 > The system checks 5 rules in sequence: (1) Is the restaurant open? (2) Is it a holiday? (3) Is the dish scheduled for this day? (4) Are there one-off overrides? (5) Is it within the cutoff time? Each rule can independently reject the pre-order. The results are cached in Redis with a 1-minute TTL for performance.
+
+**Q: How do you track table availability for dine-in orders?**
+> The `RestaurantSettings` entity stores the table configuration as a JSON array (e.g., `[{"type":"2-Seater","count":5}]`). When a customer selects a time slot, the system counts existing DINE_IN orders for that date+time and subtracts from total tables. SSE events push real-time updates when tables are booked. The endpoint is public so unauthenticated customers can see availability.
+
+**Q: How do you manage daily plate limits?**
+> Each `MenuItem` has a nullable `dailyPlateCount`. When null, plates are unlimited. When set, the system counts `order_items` for that dish on the current day and subtracts from the limit. When remaining = 0, the dish is marked unavailable. SSE events push `plate-count.updated` to all connected clients when orders consume plates.
 
 ### Behavioral Questions
 
@@ -1238,7 +1309,10 @@ GROUP BY i.id, i.display_name;
 > We used the Strangler Fig pattern. New features were built exclusively in Spring Boot. Existing functionality was migrated route by route. Firebase data was backed up and migrated to MySQL. The frontend was updated to call Spring Boot endpoints instead of Express. At no point was the application down during migration.
 
 **Q: How did you ensure code quality?**
-> We followed a rigorous testing strategy: 234 unit tests for business logic, 18 integration tests with real MySQL via Testcontainers for critical flows. We used `@PreAuthorize` for authorization, `TenantContext` for isolation, and comprehensive error handling. The `GlobalExceptionHandler` ensures consistent error responses without exposing internals.
+> We followed a rigorous testing strategy: 245 unit tests for business logic, 18 integration tests with real MySQL via Testcontainers for critical flows. We used `@PreAuthorize` for authorization, `TenantContext` for isolation, and comprehensive error handling. The `GlobalExceptionHandler` ensures consistent error responses without exposing internals.
+
+**Q: How did you handle the OTP email delivery challenge?**
+> The system uses a transactional outbox → Kafka → consumer pipeline for OTP delivery. When Gmail SMTP credentials are configured, real emails are sent via `ChannelDeliveryService` with branded HTML templates (From: "SavoryStay <email>"). As a fallback, the API always returns the OTP code in the response (`demoOtp` field), so even if emails land in spam, customers can complete signup. The `OutboxPoller` ensures events are published even if Kafka is temporarily down.
 
 ---
 
@@ -1282,6 +1356,15 @@ GROUP BY i.id, i.display_name;
 | DELETE | `/menu/{id}` | Delete menu item |
 | POST | `/menu/{id}/sold-out` | Toggle sold-out status |
 
+### Restaurants & Availability
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/restaurants` | List active restaurants (public) |
+| GET | `/restaurants/{id}` | Get restaurant details (public) |
+| GET | `/restaurants/{id}/settings` | Table config + time slots (public) |
+| GET | `/restaurants/{id}/plate-availability` | Daily plate counts (public) |
+| GET | `/restaurants/{id}/table-availability` | Real-time table counts (public) |
+
 ### Ingredients
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -1304,8 +1387,8 @@ GROUP BY i.id, i.display_name;
 ### Pre-Order
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| POST | `/pre-orders/dates` | Available dates for checkout |
 | GET | `/preorder/availability/{dishId}` | Check dish availability |
-| GET | `/preorder/calendar` | 7-day availability calendar |
 | PUT | `/preorder/settings` | Update pre-order config |
 
 ---
@@ -1322,12 +1405,14 @@ GROUP BY i.id, i.display_name;
 | **Dead Letter Topic** | Queue for undeliverable messages | Failed Kafka events |
 | **CQRS** | Separate read/write models | Dashboard queries |
 | **Transactional Outbox** | Reliable event publishing | Kafka event delivery |
-| **SSE** | Server-Sent Events for real-time push | Order status updates |
+| **SSE** | Server-Sent Events for real-time push | Order status updates, plate count, table availability |
 | **Multi-Tenancy** | Data isolation per restaurant | All data access |
 | **RBAC** | Role-Based Access Control | Authorization |
 | **Testcontainers** | Docker-based integration testing | MySQL integration tests |
 | **Idempotency** | Same operation produces same result | Payment, webhooks |
 | **Circuit Breaker** | Fail gracefully when dependency is down | Kafka retries + DLT |
+| **State Machine** | Explicit transition rules | Order status management |
+| **Outbox Cleanup** | Automatic old-event purging | OutboxCleanupScheduler (6h, 7-day retention) |
 
 ---
 

@@ -15,7 +15,7 @@ This is the single developer-facing reference for the project. It replaces all p
 | Database | MySQL 8 (Hibernate `ddl-auto: update`) |
 | Cache / rate-limit | Redis (optional at runtime — fails open) |
 | Auth | JWT (JJWT 0.11.5) + BCrypt (strength 12) |
-| OTP | ElasticEmail SMTP (email), Twilio (SMS + WhatsApp) |
+| OTP | Gmail SMTP (email), Twilio (SMS + WhatsApp) |
 | Payments | Stripe Java SDK v24, PayPal Checkout SDK v2.0, UPI / Cash (pay-on-pickup) / Mock |
 | Realtime | Server-Sent Events (SSE) + transactional outbox → Kafka |
 | Tests | JUnit 5, Mockito, Testcontainers (Redis) |
@@ -32,13 +32,14 @@ This is the single developer-facing reference for the project. It replaces all p
  ├── Security: SecurityConfig → JwtAuthenticationFilter → TenantContextFilter → Method Security (@PreAuthorize)
  ├── Controllers (13): Auth, Otp, Restaurant, Menu, Order, Payment, Ingredient, Staff, Notification,
  │                      PreOrder, Health, Dashboard, CustomerRestaurant
- ├── Services (16): Otp, Order, Menu, Ingredient, PaymentGateway, Restaurant, Notification, Realtime,
+ ├── Services (17): Otp, Order, Menu, Ingredient, PaymentGateway, Restaurant, Notification, Realtime,
  │                  ChannelDelivery, EmailTemplate, PreOrderAvailability, PreOrderConfig, Outbox,
  │                  CustomerRestaurant, Audit, KafkaEventPublisher, AuthRateLimit
- ├── Schedulers (3): OtpCleanupScheduler (15 min), OutboxPoller (3 s), PreOrderReminderScheduler (daily 08:45 IST)
+ ├── Schedulers (4): OtpCleanupScheduler (15 min), OutboxPoller (3 s), OutboxCleanupScheduler (6 h),
+ │                    PreOrderReminderScheduler (daily 08:45 IST)
  ├── Kafka Consumers: OtpNotification, OrderNotification, InventoryNotification, PaymentNotification
  │                     + DltRecorder (dead-letter topic audit)
- └── JPA Repositories (22) → MySQL
+ └── JPA Repositories (23) → MySQL
            │
            ├── Redis — rate limits / lockout state (fail-open)
            ├── Kafka — event backbone for notifications (see §7)
@@ -55,6 +56,8 @@ This is the single developer-facing reference for the project. It replaces all p
 - **Transactional outbox**: business writes (order created, status changed, OTP generated, payment confirmed, stock low) are recorded in the same DB transaction as `outbox_event`. `OutboxPoller` publishes them to Kafka → consumers dispatch Gmail/SMS/WhatsApp/SSE. At-least-once delivery, retries + dead-letter topics.
 - **Single source of truth for pre-order rules**: `PreOrderAvailabilityService` — cutoff, horizon, closures, dish availability, slot overrides (see §6).
 - **Business timezone**: `BusinessClock` (default `Asia/Kolkata`, overridable via `app.business.timezone`). Never scatter `LocalDate.now()` for business rules.
+- **Restaurant settings**: `RestaurantSettings` entity stores per-restaurant table configuration (2-seater, 4-seater, 6-seater counts), pickup time slots, and dine-in time slots. Used by the checkout modal for real-time table availability.
+- **Plate availability**: every menu item can have a `dailyPlateCount` — the maximum number of plates that can be ordered per day. When orders exceed the limit, the dish shows as unavailable.
 
 ---
 
@@ -84,12 +87,14 @@ This is the single developer-facing reference for the project. It replaces all p
 │       ├── PreOrderSettings.tsx        # Hours, cutoff, dish availability, slot overrides
 │       ├── StaffManagement.tsx         # Admin: staff accounts
 │       ├── SuperAdminDashboard.tsx     # Super admin: restaurant chain
+│       ├── AdminDashboard.tsx          # Admin: restaurant management view
+│       ├── ManagerDashboard.tsx        # Manager: 5-tab operational dashboard
 │       ├── NotificationsBell.tsx       # Notification center
 │       ├── RestaurantPicker.tsx        # In-header restaurant dropdown
 │       ├── RestaurantSelector.tsx      # Post-login modal: pick/join a restaurant
 │       ├── CustomerMembershipManager.tsx # Admin: view/remove customer members
-│       ├── BackendInspectorModal.tsx   # Dev tool
-│       └── AuthModal.tsx
+│       ├── AvailabilityWarningModal.tsx # Cart: unavailable item warning
+│       └── BackendInspectorModal.tsx   # Dev tool
 ├── springboot-backend/                 # Backend (Spring Boot)
 │   ├── pom.xml
 │   ├── .env.example                    # All environment variables documented
@@ -100,15 +105,16 @@ This is the single developer-facing reference for the project. It replaces all p
 │       ├── controller/ (Auth, Otp, Restaurant, Menu, Order, Payment, Ingredient, Staff, Notification, PreOrder, Health, Dashboard, CustomerRestaurant)
 │       ├── security/ (SecurityConfig, JwtTokenProvider, JwtAuthenticationFilter, RoleUtils, AuthContext)
 │       ├── tenant/ (TenantContext, TenantContextFilter)
-│       ├── entity/ (22 entities: User, Restaurant, MenuItem, MenuItemIngredient, Order, OrderItem, Payment,
+│       ├── entity/ (23 entities: User, Restaurant, MenuItem, MenuItemIngredient, Order, OrderItem, Payment,
 │       │            Ingredient, InventoryLedger, Notification, PriceRule, OtpRequest,
 │       │            RestaurantOperatingHour, PreOrderSettings, DishAvailability, DishSlotOverride,
-│       │            CustomerRestaurant, Refund, AuditTrail, FailedDelivery, OutboxEvent, OrderStatusHistory)
-│       ├── repository/ (22 Spring Data JPA interfaces)
-│       ├── service/ (16 services: Menu, PreOrderConfig, EmailTemplate, ChannelDelivery, PreOrderAvailability,
+│       │            CustomerRestaurant, Refund, AuditTrail, FailedDelivery, OutboxEvent, OrderStatusHistory,
+│       │            RestaurantSettings)
+│       ├── repository/ (23 Spring Data JPA interfaces)
+│       ├── service/ (17 services: Menu, PreOrderConfig, EmailTemplate, ChannelDelivery, PreOrderAvailability,
 │       │             Order, Otp, Notification, Ingredient, AuthRateLimit, Outbox, KafkaEventPublisher,
 │       │             Realtime, CustomerRestaurant, Restaurant, PaymentGateway, Audit)
-│       ├── scheduler/ (OutboxPoller, OtpCleanupScheduler, PreOrderReminderScheduler)
+│       ├── scheduler/ (OutboxPoller, OtpCleanupScheduler, OutboxCleanupScheduler, PreOrderReminderScheduler)
 │       └── consumer/ (OrderNotification, OtpNotification, InventoryNotification, PaymentNotification, DltRecorder)
 │   └── src/main/resources/
 │       ├── application.yml             # Config (env-var driven)
@@ -174,7 +180,7 @@ docker compose exec mysql mysqladmin ping -h localhost
 | Kafka | `29092` | Event backbone for email/SMS/SSE notification pipeline |
 | Kafka UI | `8081` | Web dashboard to inspect topics, consumers, lag |
 
-**MySQL** is the primary database — `DataSeeder` populates demo restaurants, menus, staff, and pre-order defaults on first boot. **Redis** is used for login rate limiting (5 failures → 15-min lockout) and OTP throttling. Without it, the app "fails open" (allows all requests) — which works but has no abuse protection. **Kafka** is required for the email/SMS notification pipeline — OTPs and order updates are dispatched through Kafka consumers.
+**MySQL** is the primary database — `DataSeeder` populates demo restaurants, menus, staff, ingredients, recipes, orders, and pre-order defaults on first boot. **Redis** is used for login rate limiting (5 failures → 15-min lockout) and OTP throttling. Without it, the app "fails open" (allows all requests) — which works but has no abuse protection. **Kafka** is required for the email/SMS notification pipeline — OTPs and order updates are dispatched through Kafka consumers.
 
 > **Health Check Endpoints:** Once the backend is running, you can verify all services:
 > ```bash
@@ -224,6 +230,7 @@ If `.env` is missing or incomplete, email falls back to **demo mode** (OTP logge
 - When env vars are set → real emails are sent via Gmail SMTP
 - When env vars are missing → the app falls back to **demo mode** (OTP is logged to the console and returned in the API response, so local flows still work)
 - The `ChannelDeliveryService.isMailConfigured()` method checks for valid credentials before attempting delivery
+- **OTP always returns the code in the API response** — even when real email is sent, the `demoOtp` field is included as a fallback for spam-filtered emails
 
 ### 4. Build & run backend
 
@@ -242,9 +249,17 @@ set -a; source .env; set +a          # load env vars
 2. Run `SavoryStayApplication` directly
 3. If `.env` is not in the project root, email falls back to demo mode
 
-On first boot, `DataSeeder` creates a super admin, two demo restaurants, staff, menus (with recipes), stock, price rules and pre-order defaults. Seed data is skipped once any user exists, but pre-order defaults are seeded idempotently for the demo restaurants.
+On first boot, `DataSeeder` creates:
+- A super admin + 8 customers
+- Two demo restaurants with staff (admin, manager, chef each)
+- 25 menu items per restaurant (50 total) with dish-specific images and daily plate counts
+- 42 ingredients per restaurant (26 food + 16 commodities/packaging)
+- Full recipes for every dish (132 recipe lines per restaurant)
+- 47+ orders per restaurant across all statuses (NEW, PREPARING, PACKED_READY, COMPLETED, DECLINED, CANCELLED) and order types (PICKUP, DINE_IN, PRE_ORDER)
+- Price rules, pre-order defaults, restaurant settings (table config + time slots)
+- Customer–restaurant memberships and sample notifications
 
-### 4. Frontend
+### 5. Frontend
 
 ```bash
 npm install
@@ -253,7 +268,7 @@ npm run dev       # http://localhost:5173
 
 `VITE_API_URL` (default `http://localhost:8080`) points at the backend.
 
-### 5. Demo accounts (seeded)
+### 6. Demo accounts (seeded)
 
 | Role | Username | Password | Restaurant |
 |---|---|---|---|
@@ -261,7 +276,7 @@ npm run dev       # http://localhost:5173
 | Admin | `savoryadmin` / `spiceadmin` | `Admin@123` | REST_DEMO_1 / REST_DEMO_2 |
 | Manager | `savorymanager` / `spicemanager` | `Manager@123` | REST_DEMO_1 / REST_DEMO_2 |
 | Chef | `savorychef` / `spicechef` | `Chef@123` | REST_DEMO_1 / REST_DEMO_2 |
-| Customer | `customer` | `Customer@123` | — |
+| Customer | `customer` / `priya_sharma` / `rahul_mehta` / `ananya_verma` / `vikram_patel` / `neha_gupta` / `arjun_singh` / `meera_iyer` | `Customer@123` | — |
 
 > **Note:** After login, the `RestaurantSelector` modal opens for customers who belong to multiple restaurants. Pick a restaurant to scope your session.
 
@@ -295,7 +310,7 @@ Customers have a **single identity** (one login, one email, one password) but ca
 - **Membership check**: `GET /api/v1/customer-restaurants/is-member/{restaurantId}`.
 - **Listing**: `GET /api/v1/customer-restaurants/my-restaurants` returns all restaurants the customer belongs to, with restaurant details.
 - **Leaving**: `DELETE /api/v1/customer-restaurants/leave/{restaurantId}`.
-- **Post-login selection**: after authentication, if the customer is a member of multiple restaurants, the frontend shows a `RestaurantSelector` modal. The customer picks a restaurant, and `POST /api/v1/auth/select-restaurant` issues a new JWT scoped to that restaurant.
+- **Post-login selection**: after authentication, if the customer is a member of multiple restaurants, the frontend shows a `RestaurantSelector` modal. The customer picks a restaurant (or joins a new one via `joinRestaurant()`), then calls `selectRestaurant()` which hits `POST /api/v1/auth/select-restaurant` to issue a restaurant-scoped JWT. On page reload, the JWT's `restaurantId` claim restores the selected context. The `RestaurantPicker` header dropdown also appears for customers so they can switch restaurants at any time.
 - **JWT scoping**: the JWT already carries a `restaurantId` claim. For customers, this is set dynamically when they select a restaurant. All downstream `TenantContext` logic, controller scope checks, and order placement work unchanged.
 
 ---
@@ -327,6 +342,7 @@ Ingredient Master (id, normalizedName, displayName, unit, category, active)
 - **Inline creation** — managers can create ingredients directly from the recipe editor without leaving the dish form. The new ingredient is immediately selectable.
 - **Unit system** — controlled units (g, kg, ml, litre, piece). `UnitConverter` handles within-group conversions (g↔kg, ml↔litre). Cross-group conversions are rejected.
 - **Tenant isolation** — every recipe operation validates `ingredient.restaurantId == currentRestaurant`. Cross-restaurant ingredient attachment is rejected server-side.
+- **Commodity/packaging tracking** — ingredients include both food items (chicken, rice, spices) and operational supplies (handwash liquid, parcel boxes, napkins, cutlery, garbage bags). This allows stock management for non-food items that affect daily operations.
 
 ### Key utility classes
 
@@ -358,6 +374,7 @@ The recipe API now requires `ingredientId` in the request body. The `name` field
 | `preorder_settings` | `cutoff_time` (default 09:00) + `advance_days` (default 7) |
 | `dish_availability` | Weekdays a dish is cooked; **no rows = available every day** (backward compatible) |
 | `dish_slot_override` | Manager OPEN/CLOSE for a specific date + dish |
+| `restaurant_settings` | Table config (2/4/6-seater counts), pickup time slots, dine-in time slots |
 
 ### Rules (all evaluated in the business timezone via `BusinessClock`)
 
@@ -372,29 +389,54 @@ The recipe API now requires `ingredientId` in the request body. The `name` field
 `OrderService.placeOrder` calls `PreOrderAvailabilityService.validatePreOrder(...)` for `PRE_ORDER` orders before pricing — customers get a clear `400` message (e.g. "Pre-order cutoff … has passed", "Restaurant is closed on …", "Not available for pre-order on …"). `POST /api/v1/pre-orders/dates` powers the checkout date picker (each date carries `orderable`, `reasons`, and per-dish availability).
 
 ### Seeded demo defaults
-- Mon & Sat close at **14:00** (2nd half closed), Sun = weekly holiday, other days 09:00–23:00.
-- Butter Chicken cooked Mon/Wed/Fri/Sun; Masala Chai every day; remaining dishes unconfigured (= daily).
+- Mon & Sat close at **14:00** (2nd half closed), Sun = weekly holiday, other days 11:00–23:00.
+- Butter Chicken cooked Mon/Wed/Fri; Masala Chai every day; remaining dishes unconfigured (= daily).
 
 ---
 
-## 7. Event Pipeline (Outbox → Kafka → Notifications)
+## 8. Restaurant Settings (tables & time slots)
+
+The `RestaurantSettings` entity stores per-restaurant configuration for dine-in tables and order time slots:
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `tableConfig` | TEXT (JSON) | `[{"type":"2-Seater","count":5},{"type":"4-Seater","count":4},{"type":"6-Seater","count":2}]` | Defines seating categories with table counts |
+| `totalTables` | INT | 11 | Total tables (computed from tableConfig) |
+| `pickupTimeSlots` | VARCHAR(500) | `"15 Mins,30 Mins,45 Mins,1 Hour,1.5 Hours"` | Pickup wait-time options |
+| `dineinTimeSlots` | VARCHAR(500) | `"12:00 PM,12:30 PM,..."` | Dine-in time-of-day options |
+
+### Public availability endpoints (no auth required)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/restaurants/{id}/plate-availability?date=YYYY-MM-DD` | Daily plate count per dish (remaining = dailyPlateCount - platesOrdered) |
+| `GET /api/v1/restaurants/{id}/table-availability?date=YYYY-MM-DD&timeSlot=12:00 PM` | Table availability per type for a specific date+time |
+| `GET /api/v1/restaurants/{id}/settings` | Table config, pickup slots, dine-in slots |
+
+These endpoints are public so unauthenticated customers browsing the menu can see real-time plate counts and table availability.
+
+---
+
+## 9. Event Pipeline (Outbox → Kafka → Notifications)
 
 ```
 Service writes DB row + outbox_event (same transaction)
    → OutboxPoller (every 3s, per-event transaction)
    → Kafka topics: savorystay.orders │ savorystay.otp │ savorystay.inventory │ savorystay.payments
    → Consumers (OrderNotification, OtpNotification, InventoryNotification, PaymentNotification)
-        → SSE (in-app) + Twilio SMS/WhatsApp + ElasticEmail Gmail (HTML templates)
+        → SSE (in-app) + Twilio SMS/WhatsApp + Gmail SMTP (HTML templates from "SavoryStay <email>")
    → Failures: non-blocking retries (1s→2s→4s) → DLT topic → failed_delivery audit table
+   → OutboxCleanupScheduler: purges published/failed events older than 7 days (every 6 hours)
 ```
 
 - Topics auto-create on startup (`KafkaTopicConfig`). Retry/DLT topics per consumer (`@RetryableTopic`, `@DltHandler`).
 - Demo mode (no SMTP/Twilio credentials): delivery methods log and return `false`, API still returns `demoOtp` for local testing; no retries/dead-lettering.
+- **OTP fallback**: when real email is configured, the API still returns the OTP code in the response (`demoOtp` field) as a fallback for spam-filtered emails.
 - ⚠️ OTP delivery needs Kafka — an OTP queued while the broker is down expires (5 min) before it can be delivered.
 
 ---
 
-## 8. REST API Reference
+## 10. REST API Reference
 
 Base URL: `http://localhost:8080/api/v1`. Errors are uniform: `{ "success": false, "message": "..." }`.
 
@@ -404,7 +446,7 @@ Base URL: `http://localhost:8080/api/v1`. Errors are uniform: `{ "success": fals
 | POST | `/auth/register` | public | username, email, password, phone?, otpCode? |
 | POST | `/auth/login` | public | username + password |
 | POST | `/auth/login-with-otp` | public | username + otpCode + channel |
-| POST | `/auth/otp/send/email` \| `/sms` \| `/whatsapp` | public | returns `demoOtp` in demo mode |
+| POST | `/auth/otp/send/email` \| `/sms` \| `/whatsapp` | public | always returns `demoOtp` as fallback |
 | POST | `/auth/otp/verify` | public | userId + otpCode + channel |
 | POST | `/auth/otp/resend` | public | |
 | GET | `/auth/me` | authenticated | current profile |
@@ -416,6 +458,9 @@ Base URL: `http://localhost:8080/api/v1`. Errors are uniform: `{ "success": fals
 |---|---|---|
 | GET | `/restaurants`, `/restaurants/{id}` | public |
 | GET | `/restaurants/{id}/menu` | public |
+| GET | `/restaurants/{id}/settings` | public |
+| GET | `/restaurants/{id}/plate-availability` | public |
+| GET | `/restaurants/{id}/table-availability` | public |
 | POST/PUT/DELETE/GET | `/super-admin/restaurants…` | SUPER_ADMIN |
 | POST/PATCH/GET | `/staff…` | ADMIN/SUPER_ADMIN |
 
@@ -508,54 +553,58 @@ Base URL: `http://localhost:8080/api/v1`. Errors are uniform: `{ "success": fals
 
 ---
 
-## 9. Database Schema (highlights)
+## 11. Database Schema (highlights)
 
 All tables are created idempotently via `schema.sql` + `ddl-auto: update`.
 
 - **users** — `id, username, email, password_hash, role (comma CSV), phone, restaurant_id, enabled, created_at, last_login`
 - **restaurants** — `id, name, description, address, city, cuisine, phone, email, logo_url, status, currency, owner_id, auto_join_customers` (`auto_join_customers BOOLEAN DEFAULT TRUE` — when true, customers are auto-joined on first order)
+- **restaurant_settings** — `restaurant_id (PK), table_config (TEXT/JSON), total_tables, pickup_time_slots, dinein_time_slots, created_at` — per-restaurant table capacity and time slot configuration
 - **customer_restaurant** — `id, customer_id, restaurant_id, display_name, joined_at` (unique on `customer_id + restaurant_id`; FK to `users` and `restaurants` with `ON DELETE CASCADE`) — tracks which restaurants a customer belongs to
 - **ingredients** — `id, restaurant_id, name, display_name, normalized_name, unit, category, stock_quantity, reorder_level, active, version` — **unique on `(restaurant_id, normalized_name)`**. The ingredient's ID is the canonical identity; names are human-readable labels only.
-- **menu_items** — dishes with standard fields
+- **menu_items** — dishes with `daily_plate_count` (nullable — null = unlimited plates per day)
 - **menu_item_ingredients** — recipe lines: `menu_item_id, ingredient_id (FK→ingredients), name (denormalized), quantity_per_unit, unit` — **unique on `(menu_item_id, ingredient_id)`** prevents duplicate ingredients in one recipe
 - **orders / order_items / payments / order_status_history** — orders, line items, audit trail. Orders carry `cancelled_by`, `cancel_reason`, `cancelled_at` for cancellation tracking.
 - **refunds** — refund lifecycle: `REQUESTED → PROCESSING → COMPLETED/FAILED`. Links to order + payment. Tracks `provider_refund_id`, `initiated_by`, `reason`.
 - **audit_trail** — general-purpose append-only audit for all business mutations (menu, price, recipe, ingredient, inventory, pre-order config, staff, orders, refunds, payments). Columns: `restaurant_id, actor_user_id, actor_role, action, entity_type, entity_id, old_value, new_value, reason, recorded_at`.
 - **ingredients / inventory_ledger** — stock (optimistic-lock `version`) + append-only movements. Ledger reasons: `ORDER_CONSUMED, CANCELLATION_RELEASE, MANUAL_RESTOCK, WASTAGE, SPOILAGE, DAMAGE, STOCK_COUNT_CORRECTION, MANUAL_ADJUSTMENT`.
-- **notifications** — persisted + delivery status (`channel`, `delivery_phone/email`, `status`, attempts)
+- **notifications** — persisted + delivery status (`channel`, `delivery_phone/email`, `status`, `attempts`)
 - **price_rule** — scheduled price changes (`effective_from`)
 - **otp_requests** — OTP lifecycle (status, expiry, attempts)
 - **outbox_event / failed_delivery** — event backbone + DLT audit
-- **restaurant_operating_hours / preorder_settings / dish_availability / dish_slot_override** — pre-order config (§6)
+- **restaurant_operating_hours / preorder_settings / dish_availability / dish_slot_override** — pre-order config (§7)
 
 ---
 
-## 10. Frontend Guide
+## 12. Frontend Guide
 
 - **State lives in `App.tsx`** — `activeTab`, auth (`currentUser`/`jwtToken`/`userRole`/`userRestaurantId`), `cart`, `menuItems`, `orders`, restaurant selection, `isRestaurantSelectorOpen` (post-login restaurant picker).
 - **API calls** go through `src/lib/apiClient.ts` (plain `fetch`; `authenticatedFetch` attaches the Bearer token from `localStorage` key `savory_token`). Each function throws `Error(message)` on failure — components surface `err.message` in red banners.
 - **Types** are centralized in `src/types.ts`; backend entities are parsed (e.g. `parseMenuItem` converts price strings → numbers).
-- **Realtime** — `useRealtimeNotifications` opens an `EventSource` to `/realtime/stream?token=…`; incoming events update the notification bell and refresh orders.
+- **Realtime** — `useRealtimeNotifications` opens an `EventSource` to `/realtime/stream?token=…`; incoming events update the notification bell and refresh orders. Uses `useRef` pattern to avoid stale closure bugs.
 - **Tabs** (`ViewTab`) are role-scoped in `Header`/`BottomNav`: Menu (all), Menu Mgmt + Pre-Orders (manager+), Orders (customer tracking / staff dashboard), Kitchen (staff), Dashboard (manager+), Staff (admin), Admin (super admin), Ingredients/Prep (staff), Spring (dev inspector).
 - **Super-admin scoping** — a super admin's JWT carries no restaurant, so they pick one via the header `RestaurantPicker` or the "Manage" button on `SuperAdminDashboard`; every staff-scoped API call then passes `?restaurantId=` and the backend honors it (`TenantContext.resolveRestaurantScope`). Staff accounts stay locked to their own restaurant.
 - **Customer restaurant selection** — after login, if the customer is a member of multiple restaurants, `RestaurantSelector` opens. It calls `getMyRestaurants()` to list memberships, lets the customer pick one (or join a new one via `joinRestaurant()`), then calls `selectRestaurant()` which hits `POST /auth/select-restaurant` to issue a restaurant-scoped JWT. On page reload, the JWT's `restaurantId` claim restores the selected context. The `RestaurantPicker` header dropdown also appears for customers so they can switch restaurants at any time.
 - **Customer membership management** (`CustomerMembershipManager.tsx`) — admin/super-admin view accessible via the "Members" tab in the header/bottom nav. Shows all customer members of the current restaurant with username, email, phone, join date, and enabled status. Supports search filtering and member removal (with confirmation). The "Members" tab displays a **sky-blue badge** with the live member count, fetched via `listCustomerMembers()`.
 - **Auto-join on first order** — when a restaurant has `autoJoinCustomers = true` (the default), `OrderService.placeOrder` automatically adds the customer to the `customer_restaurant` table if they aren't already a member. This is non-critical: if it fails, the order still goes through. The flag is on the `restaurants` entity and can be toggled via API or DB.
-- **Menu calendar** (`CustomerMenuView`): a "Pre-Order Availability" strip sits on the menu itself — one chip per upcoming day (tomorrow → advance horizon) with status (Available / Partial / Closed / Cutoff), a per-day dish breakdown, and a dish filter; selecting a date syncs it into checkout as the default pre-order date.
-- **Checkout flow** (`RealtimePaymentModal`): for PRE_ORDER it fetches `/pre-orders/dates` for the cart's dishes, lets the customer pick an available date + pickup time (bounded by operating hours), and submits an ISO `pickupTime` (`YYYY-MM-DDTHH:MM:SS`). Backend re-validates and rejects invalid pre-orders.
-- **Cart availability check** (`RealtimePaymentModal`): when the checkout modal opens, `checkCartAvailability()` is called immediately to detect items that went out of stock while the customer was browsing. Unavailable items are shown in a rose warning banner with strikethrough in the cart summary, and the submit button is disabled until the customer removes them from the cart. This prevents wasted payment attempts on sold-out items.
+- **Menu calendar** (`CustomerMenuView`): a "Pre-Order Availability" strip sits on the menu itself — one chip per upcoming day (tomorrow → advance horizon) with status (Available / Partial / Closed / Cutoff), a per-day dish breakdown, and a dish filter; selecting a date syncs it into checkout as the default pre-order date. **Plate availability** shows daily remaining plates per dish (dailyPlateCount - platesOrdered).
+- **Checkout flow** (`RealtimePaymentModal`): for PRE_ORDER it fetches `/pre-orders/dates` for the cart's dishes, lets the customer pick an available date + pickup time (bounded by operating hours), and submits an ISO `pickupTime` (`YYYY-MM-DDTHH:MM:SS`). Backend re-validates and rejects invalid pre-orders. For DINE_IN, shows table types from `RestaurantSettings` with real-time availability. For PICKUP, shows configurable time slots.
+- **Cart availability check** (`RealtimePaymentModal` + `AvailabilityWarningModal`): when the checkout modal opens, `checkCartAvailability()` is called immediately to detect items that went out of stock while the customer was browsing. Unavailable items are shown in a rose warning banner with strikethrough in the cart summary, and the submit button is disabled until the customer removes them from the cart. This prevents wasted payment attempts on sold-out items.
+- **Real-time table availability** (`RealtimePaymentModal`): when a customer changes the time slot for DINE_IN, the component re-fetches `/restaurants/{id}/table-availability` to show live table counts. SSE `table-availability.updated` events also refresh the view when another customer books a table. A "table just booked" notification toast appears.
 - **CASH / Pay-on-Pickup** (`RealtimePaymentModal`): when the customer selects "Pay on Pickup" (CASH), the frontend skips `confirmOrderPayment()` so the order stays `PENDING`. The backend also rejects CASH in `confirmPayment()` — CASH orders must be marked PAID by restaurant staff when the customer pays at the counter. This ensures the payment status accurately reflects when cash is collected.
 - **Auth modal cleanup** (`AuthModal.tsx`): a `useEffect` resets all form fields (email, password, username, phone, OTP codes, error messages) when the modal closes, so stale data from a previous session never leaks into a fresh login attempt.
-- **7-day ingredient forecast picker** (`IngredientPlanning.tsx`): the forecast screen now shows a 7-day horizontal date chip grid (tomorrow → +7 days) instead of a single date input. Each chip displays the day name, date, and operating hours (e.g. `09:00–23:00`). Closed days (weekly holidays, 2nd-half closures) are dimmed with a `CLOSED` badge and are not clickable. The operating hours are fetched from `GET /pre-orders/config/hours` on load. The chef clicks a date chip, then "Compute Forecast" to see that day's ingredient requirements.
+- **7-day ingredient forecast picker** (`IngredientPlanning.tsx`): the forecast screen now shows a 7-day horizontal date chip grid (tomorrow → +7 days) instead of a single date input. Each chip displays the day name, date, and operating hours (e.g. `11:00–23:00`). Closed days (weekly holidays, 2nd-half closures) are dimmed with a `CLOSED` badge and are not clickable. The operating hours are fetched from `GET /pre-orders/config/hours` on load. The chef clicks a date chip, then "Compute Forecast" to see that day's ingredient requirements.
 - **Manager pre-order config** lives in `PreOrderSettings.tsx` (hours grid, cutoff/horizon, per-dish weekdays, OPEN/CLOSE slot overrides). The recipe editor (ingredients per plate) lives in the MenuManagement dish form.
 - **Manager Dashboard** (`ManagerDashboard.tsx`): 5-tab operational dashboard — **Today** (orders/revenue/status grid), **Exceptions** (failures/delays/shortages), **Shopping** (shortfall table with date picker), **Cash** (reconciliation), **Payments** (gross/refunds/net by method). Accessible via the Dashboard tab in Header/BottomNav for manager+ roles.
+- **Admin Dashboard** (`AdminDashboard.tsx`): admin-level restaurant management view with restaurant stats, staff overview, and customer membership summary.
 - **Kitchen Production Queue** (`PreBookingsDashboard.tsx`): right sidebar shows dish-level production with urgency badges (OVERDUE/DUE_SOON/NORMAL) and a delayed orders alert with minutes late. Data fetched from `GET /orders/kitchen/production` and `/kitchen/delayed`.
 - **Sold-Out / 86 toggle** (`MenuManagement.tsx`): each dish card has an 86/Restock button that calls `POST /menu/{id}/sold-out`. Toggles between Available and Sold Out instantly. Customers see the dish as unavailable; existing confirmed orders are not affected.
 - **Order cancellation** (`PreBookingsDashboard.tsx`): staff can cancel orders via the status update flow. The backend validates state machine transitions and records cancellation metadata.
+- **BottomNav Stock tab** — managers can access the Ingredients/Stock view from the mobile bottom navigation.
 
 ---
 
-## 11. Testing
+## 13. Testing
 
 ```bash
 # Backend (all unit + integration tests; Docker-dependent tests skip when Docker is unavailable)
@@ -582,6 +631,8 @@ Test coverage highlights:
 - `RefundServiceTest` (11 tests) — refund lifecycle (initiate, idempotent, complete), reject non-PAID/customer/cross-tenant, handle missing payment.
 - `AuditServiceTest` (7 tests) — record with all fields, convenience overloads (no old value, Map payload), null actor, error resilience, query by entity/action, recent with limit.
 - `OrderServiceSuspensionTest` (15 tests) — expanded: 3 auto-join + 3 CASH payment + 6 cancellation (manager cancel, customer cancel, invalid transition, chef cannot decline, terminal state) + 3 payment idempotency (already PAID, payment row exists, amount mismatch).
+- `MenuServiceSseTest` — validates SSE plate-count events include `dailyPlateCount` and `remainingPlates`.
+- `RestaurantAvailabilityTest` — validates plate-availability endpoint returns correct daily counts.
 - **`RefundAuditIntegrationTest`** (18 tests, MySQL Testcontainers) — full lifecycle against real DB: refund initiate→complete, idempotency, reject non-PAID/customer/cross-tenant; audit record+query by entity/action, recent limit, tenant isolation; order cancellation with audit+history; inventory deduction+release with ledger; payment idempotency+CASH rejection+amount mismatch.
 
 ### P0 / P1 Implementation Summary
@@ -606,12 +657,15 @@ Test coverage highlights:
 | **P1.10 Payment Reconciliation** | `GET /dashboard/payment-reconciliation` — gross/refunds/net, breakdown by payment method. |
 | **P1.11 Exception Center** | `GET /dashboard/exceptions` — aggregated failures, delays, shortages, pending payments. |
 | **P1.13 Manager Dashboard** | `GET /dashboard/summary` — today's orders/revenue/status breakdown + tomorrow's brief + AOV + cancellation % + refund %. |
+| **P1.14 Plate Availability** | `GET /restaurants/{id}/plate-availability` — daily remaining plates per dish (dailyPlateCount - platesOrdered). SSE events notify cart of stock changes. |
+| **P1.15 Table Availability** | `GET /restaurants/{id}/table-availability` — real-time table counts per type (2/4/6-seater) for a specific date+time slot. SSE events notify checkout when tables are booked. |
+| **P1.16 Restaurant Settings** | `RestaurantSettings` entity — table config, pickup time slots, dine-in time slots. Public API for checkout modal. |
+| **P1.17 Outbox Cleanup** | `OutboxCleanupScheduler` — purges published/failed outbox events older than 7 days (every 6 hours). |
+| **P1.18 Cart Availability Warning** | `AvailabilityWarningModal` — warns customers when items in cart become unavailable, prevents wasted payment attempts. |
 
 ---
 
----
-
-## 12. Deployment
+## 14. Deployment
 
 ### Local Development
 
@@ -635,7 +689,8 @@ Test coverage highlights:
 **Option B — Oracle Cloud VM (Docker):**
 
 - Deploy all services on a single free-tier VM using `docker-compose.prod.yml`
-- Nginx reverse proxy with SSL termination
+- Nginx reverse proxy with SSL termination (Let's Encrypt)
+- DuckDNS domain: `savorystay.duckdns.org`
 - See `CLOUD_DEPLOYMENT.md` for step-by-step instructions
 
 **Production Files:**
@@ -645,7 +700,9 @@ Test coverage highlights:
 | `docker-compose.prod.yml` | Production Docker Compose (backend + MySQL + Redis + Kafka) |
 | `Dockerfile.frontend` | Multi-stage React build + nginx |
 | `nginx.conf` | SPA routing + API proxy + SSE support |
+| `nginx-ssl.conf` | SSL termination with Let's Encrypt certificates |
 | `CLOUD_DEPLOYMENT.md` | Complete free-tier deployment guide |
+| `deploy.sh` | One-click deploy script |
 
 **Production Checklist:**
 
@@ -660,29 +717,30 @@ Test coverage highlights:
 
 ---
 
-## 13. Security Notes
+## 15. Security Notes
 
 - Secrets live only in environment variables; **no committed credentials** (the app aborts startup without `JWT_SECRET`/`MYSQL_PASSWORD`).
 - Rate limiting: login failures (5 → 15-min lockout), OTP send/verify throttling — Redis-backed, **fails open** if Redis is down.
 - OTPs are purpose-tagged (`LOGIN` vs `REGISTRATION`), 6-digit, 5-min expiry, max 5 attempts, auto-cleaned every 15 min.
 - Payment status is server-authoritative; amount is verified against the order total before marking PAID.
 - Passwords: BCrypt strength 12; `role` claim is server-issued; `TenantContext` + service-level checks enforce restaurant isolation.
+- Email delivery: HTML emails sent as `SavoryStay <email>` (branded From header) with Reply-To for improved inbox placement.
+- OTP code always returned in API response as fallback — even when real email is sent, to handle spam-filtered emails.
 
 ---
 
-## 14. Common Troubleshooting
+## 16. Common Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | App aborts: "required secrets are missing" | Set `JWT_SECRET` (≥32 bytes) + `MYSQL_PASSWORD` |
 | MySQL connection refused | Start MySQL; check `MYSQL_*` vars |
 | Port 8080/5173 busy | Change `server.port` / Vite port |
-| OTP email not received | Verify ElasticEmail SMTP creds + verified sender; check spam |
+| OTP email not received | Verify Gmail SMTP creds (App Password); check spam. OTP code is also in API response as fallback |
 | Notifications not delivered | Start Kafka (`docker compose up -d`); check Kafka UI `:8081` and `failed_delivery` table |
 | Pre-order rejected unexpectedly | Check hours (a day closing ≤14:00 blocks), cutoff time, dish availability, horizon |
 | Redis `Unable to connect` warnings | Start Redis: `docker compose up -d redis` — verify with `redis-cli ping` (should return `PONG`) |
 | Email `535 Authentication failed` | Gmail SMTP password is wrong/empty. Generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). Without env vars, email falls back to demo mode (OTP logged to console). |
-| Email not sending (demo mode) | The app is using demo mode because `MAIL_PASSWORD` is not set. Add Gmail SMTP credentials to `springboot-backend/.env`. The app auto-loads `.env` on startup. |
 | Health endpoints not responding | Ensure the backend is running. Check: `curl http://localhost:8080/api/v1/health` (should return `{"status":"UP"}`). For individual services: `/health/mail`, `/health/redis`, `/health/kafka`. |
 | Redis shows DOWN in health check | Start Redis: `docker compose up -d redis`. The app fails open without Redis (rate limiting disabled). |
 | Kafka shows DOWN in health check | Start Kafka: `docker compose up -d kafka`. Notifications won't deliver without Kafka. |
@@ -695,7 +753,10 @@ Test coverage highlights:
 | CASH order shows as PAID | Fixed — CASH orders stay PENDING until staff marks them paid at the counter |
 | Auth form shows old data after logout | Fixed — form fields reset when the modal closes |
 | Forecast only shows one date | The 7-day date picker replaces the old single date input; click any non-closed date chip |
+| Plate count shows NaN | Fixed — dailyPlateCount is properly parsed from API response |
+| Plate availability endpoint returns 403 | Fixed — `/restaurants/{id}/plate-availability` and `/table-availability` are now public (no auth required) |
+| Outbox events growing unbounded | `OutboxCleanupScheduler` runs every 6 hours and purges events older than 7 days |
 
 ---
 
-**Status:** production-ready. Backend: **263 tests passing** (245 unit + 18 MySQL Testcontainers integration). Frontend: typecheck + production build clean. P0 correctness (state machine, cancellation, refund, audit, idempotency, tenant isolation, cash mark-paid) and P1 operations (kitchen priority, sold-out 86, tomorrow brief, shopping list, reconciliation, exception center, manager dashboard with AOV/cancellation%/refund%) fully implemented. Frontend dashboard wired to all backend endpoints. Order Again feature added for customer reorder flow.
+**Status:** production-ready. Backend: **263+ tests passing** (245 unit + 18 MySQL Testcontainers integration). Frontend: typecheck + production build clean. P0 correctness (state machine, cancellation, refund, audit, idempotency, tenant isolation, cash mark-paid) and P1 operations (kitchen priority, sold-out 86, tomorrow brief, shopping list, reconciliation, exception center, manager dashboard with AOV/cancellation%/refund%, plate availability, table availability, restaurant settings) fully implemented. Frontend dashboard wired to all backend endpoints. Order Again feature added for customer reorder flow. Live demo data seeded: 2 restaurants, 50 menu items, 42 ingredients each, 94+ orders, 8 customers with memberships.

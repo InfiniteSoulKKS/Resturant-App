@@ -16,7 +16,7 @@ flowchart TD
     %% ─── Frontend ───
     subgraph FE["Frontend — React SPA (Vite :5173)"]
         direction TB
-        C1["components/ (19 files)<br/>AuthModal · CustomerMenuView · MenuManagement<br/>PreBookingsDashboard · RealtimePaymentModal · OrderTracking<br/>StaffManagement · SuperAdminDashboard · IngredientPlanning<br/>ManagerDashboard · ChefPrepSummary · NotificationsBell<br/>RestaurantPicker · RestaurantSelector · CustomerMembershipManager<br/>BottomNav · Header · PreOrderSettings · BackendInspectorModal"]
+        C1["components/ (21 files)<br/>AuthModal · CustomerMenuView · MenuManagement<br/>PreBookingsDashboard · RealtimePaymentModal · OrderTracking<br/>StaffManagement · SuperAdminDashboard · AdminDashboard<br/>IngredientPlanning · ManagerDashboard · ChefPrepSummary<br/>NotificationsBell · RestaurantPicker · RestaurantSelector<br/>CustomerMembershipManager · PreOrderSettings<br/>AvailabilityWarningModal · BottomNav · Header<br/>BackendInspectorModal"]
         C2["lib/<br/>apiClient · tokenManager · roles.ts"]
         C3["hooks/<br/>useRealtimeNotifications (SSE client)"]
     end
@@ -24,11 +24,11 @@ flowchart TD
     %% ─── Backend ───
     subgraph BE["Backend — Spring Boot 3.2 (:8080)"]
         direction TB
-        SEC["Security Layer<br/>SecurityConfig · JwtAuthenticationFilter · JwtTokenProvider<br/>RoleUtils · AuthContext · TenantContextFilter<br/>AuthRateLimitService (Redis)"]
+        SEC["Security Layer<br/>SecurityConfig · JwtAuthenticationFilter · JwtTokenProvider<br/>RoleUtils · AuthContext · TenantContextFilter<br/>AuthRateLimitService (Redis)<br/>Public: plate-availability · table-availability"]
         CTRL["Controllers (13)<br/>Auth · Otp · Restaurant · Menu · Order · Payment<br/>Ingredient · Staff · Notification · PreOrder<br/>Health · Dashboard · CustomerRestaurant"]
-        SVC["Services (16)<br/>Otp · Order · Menu · Ingredient · PaymentGateway<br/>Restaurant · Notification · Realtime · ChannelDelivery<br/>EmailTemplate · PreOrderAvailability · PreOrderConfig<br/>Outbox · CustomerRestaurant · Audit · KafkaEventPublisher"]
-        SCH["Schedulers (3)<br/>OtpCleanupScheduler (15 min)<br/>OutboxPoller (3 s)<br/>PreOrderReminderScheduler (daily 08:45 IST)"]
-        REPO["JPA Repositories (22)"]
+        SVC["Services (17)<br/>Otp · Order · Menu · Ingredient · PaymentGateway<br/>Restaurant · Notification · Realtime · ChannelDelivery<br/>EmailTemplate · PreOrderAvailability · PreOrderConfig<br/>Outbox · CustomerRestaurant · Audit · KafkaEventPublisher<br/>AuthRateLimit"]
+        SCH["Schedulers (4)<br/>OtpCleanupScheduler (15 min)<br/>OutboxPoller (3 s)<br/>OutboxCleanupScheduler (6 h)<br/>PreOrderReminderScheduler (daily 08:45 IST)"]
+        REPO["JPA Repositories (23)"]
     end
 
     %% ─── Kafka Layer ───
@@ -40,13 +40,13 @@ flowchart TD
     end
 
     %% ─── Data / Infra ───
-    DB[("MySQL<br/>22+ tables<br/>users · restaurants · menu_items · orders<br/>order_items · payments · refunds · audit_trail<br/>ingredients · inventory_ledger · customer_restaurant<br/>otp_requests · price_rules · outbox_events<br/>restaurant_operating_hours · preorder_settings<br/>dish_availability · dish_slot_override<br/>order_status_history · failed_delivery · notifications")]
+    DB[("MySQL<br/>23+ tables<br/>users · restaurants · restaurant_settings<br/>menu_items · menu_item_ingredients · orders<br/>order_items · payments · refunds · audit_trail<br/>ingredients · inventory_ledger · customer_restaurant<br/>otp_requests · price_rules · outbox_events<br/>restaurant_operating_hours · preorder_settings<br/>dish_availability · dish_slot_override<br/>order_status_history · failed_delivery · notifications")]
     RD[("Redis<br/>rate limits · lockout state")]
 
     %% ─── External services ───
     subgraph EXT["External Providers"]
         TW["Twilio<br/>SMS + WhatsApp"]
-        SM["SMTP / Gmail<br/>Email OTP + HTML templates"]
+        SM["Gmail SMTP<br/>Email OTP + HTML templates<br/>(branded From header)"]
         ST["Stripe<br/>PaymentIntent"]
         PP["PayPal<br/>Checkout SDK"]
     end
@@ -54,8 +54,8 @@ flowchart TD
     %% ─── Flows ───
     U -->|"browse · cart · pre-book · pay · track"| FE
     S -->|"kitchen queue · cook/pack"| FE
-    M -->|"prices · staff · complete orders"| FE
-    A -->|"chain dashboard"| FE
+    M -->|"prices · staff · complete orders · configure tables"| FE
+    A -->|"chain dashboard · manage restaurants"| FE
 
     FE -->|"HTTPS /api/v1/*<br/>Bearer JWT"| SEC
     SEC --> CTRL
@@ -75,11 +75,11 @@ flowchart TD
     SVC -->|"payment intents"| ST
     SVC -->|"checkout orders"| PP
 
-    SVC -->|"SSE stream /api/v1/realtime/stream"| C3
-    C3 -->|"live events → notifications bell · order refresh"| C1
+    SVC -->|"SSE stream<br/>plate-count.updated<br/>table-availability.updated<br/>order.status.changed"| C3
+    C3 -->|"live events → notifications bell · order refresh · cart updates"| C1
 
     %% ─── Health Check ───
-    HC["Health Endpoints<br/>/health<br/>/health/mail<br/>/health/redis<br/>/health/kafka"]
+    HC["Health Endpoints<br/>/health · /health/mail<br/>/health/redis · /health/kafka"]
 
     class U,S,M,A fe
     class C1,C2,C3 fe

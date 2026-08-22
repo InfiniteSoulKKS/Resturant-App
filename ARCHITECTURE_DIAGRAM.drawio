@@ -21,16 +21,16 @@
 
         <!-- ══════════ Frontend container ══════════ -->
         <mxCell id="FE" value="Frontend — React SPA (Vite :5173)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#d97706;fontColor=#78350f;fontStyle=1;fontSize=13;verticalAlign=top;spacingTop=8;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="230" y="60" width="340" height="400" as="geometry" />
+          <mxGeometry x="230" y="60" width="340" height="420" as="geometry" />
         </mxCell>
-        <mxCell id="C1" value="components (19 files)&#10;AuthModal · CustomerMenuView · MenuManagement&#10;PreBookingsDashboard · RealtimePaymentModal&#10;OrderTracking · StaffManagement · SuperAdminDashboard&#10;IngredientPlanning · ManagerDashboard · ChefPrepSummary&#10;NotificationsBell · RestaurantPicker · RestaurantSelector&#10;CustomerMembershipManager · PreOrderSettings&#10;BottomNav · Header · BackendInspectorModal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#f59e0b;fontColor=#78350f;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="250" y="110" width="300" height="170" as="geometry" />
+        <mxCell id="C1" value="components (21 files)&#10;AuthModal · CustomerMenuView · MenuManagement&#10;PreBookingsDashboard · RealtimePaymentModal&#10;OrderTracking · StaffManagement · SuperAdminDashboard&#10;IngredientPlanning · ManagerDashboard · AdminDashboard&#10;ChefPrepSummary · NotificationsBell · RestaurantPicker&#10;RestaurantSelector · CustomerMembershipManager&#10;PreOrderSettings · BottomNav · Header&#10;AvailabilityWarningModal · BackendInspectorModal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#f59e0b;fontColor=#78350f;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="250" y="110" width="300" height="180" as="geometry" />
         </mxCell>
         <mxCell id="C2" value="lib — apiClient · tokenManager · roles.ts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#f59e0b;fontColor=#78350f;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="250" y="300" width="300" height="40" as="geometry" />
+          <mxGeometry x="250" y="310" width="300" height="40" as="geometry" />
         </mxCell>
         <mxCell id="C3" value="hooks — useRealtimeNotifications (SSE client)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#f59e0b;fontColor=#78350f;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="250" y="360" width="300" height="40" as="geometry" />
+          <mxGeometry x="250" y="370" width="300" height="40" as="geometry" />
         </mxCell>
 
         <!-- ══════════ Backend container ══════════ -->
@@ -43,13 +43,13 @@
         <mxCell id="CTRL" value="Controllers (13) — Auth · Otp · Order · Menu · Payment&#10;Ingredient · Restaurant · Staff · Notification · PreOrder&#10;Health · Dashboard · CustomerRestaurant" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="640" y="210" width="400" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="SVC" value="Services (16) — Otp · Order · Menu · Ingredient · PaymentGateway&#10;Restaurant · Notification · Realtime · ChannelDelivery · EmailTemplate&#10;PreOrderAvailability · PreOrderConfig · Outbox · CustomerRestaurant&#10;Audit · KafkaEventPublisher" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="SVC" value="Services (17) — Otp · Order · Menu · Ingredient · PaymentGateway&#10;Restaurant · Notification · Realtime · ChannelDelivery · EmailTemplate&#10;PreOrderAvailability · PreOrderConfig · Outbox · CustomerRestaurant&#10;Audit · KafkaEventPublisher · AuthRateLimit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="640" y="290" width="400" height="90" as="geometry" />
         </mxCell>
-        <mxCell id="SCH" value="Schedulers (3) — OtpCleanupScheduler (15 min) · OutboxPoller (3 s)&#10;PreOrderReminderScheduler (daily 08:45 IST)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="SCH" value="Schedulers (4) — OtpCleanupScheduler (15 min) · OutboxPoller (3 s)&#10;OutboxCleanupScheduler (6 h) · PreOrderReminderScheduler (daily 08:45 IST)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="640" y="400" width="400" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="REPO" value="JPA Repositories (22)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="REPO" value="JPA Repositories (23)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#4338ca;fontColor=#1e1b4b;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="640" y="470" width="400" height="40" as="geometry" />
         </mxCell>
         <mxCell id="HC" value="Health — /health · /health/mail · /health/redis · /health/kafka" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontColor=#7f1d1d;fontSize=10;" vertex="1" parent="1">
@@ -71,7 +71,7 @@
         </mxCell>
 
         <!-- ══════════ Data / Infra ══════════ -->
-        <mxCell id="DB" value="MySQL (22+ tables)&#10;users · restaurants · menu_items · orders · order_items&#10;payments · refunds · audit_trail · ingredients&#10;inventory_ledger · customer_restaurant · otp_requests&#10;price_rules · outbox_events · restaurant_operating_hours&#10;preorder_settings · dish_availability · dish_slot_override&#10;order_status_history · failed_delivery · notifications" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d1fae5;strokeColor=#059669;fontColor=#064e3b;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="DB" value="MySQL (23+ tables)&#10;users · restaurants · menu_items · orders · order_items&#10;payments · refunds · audit_trail · ingredients&#10;inventory_ledger · customer_restaurant · otp_requests&#10;price_rules · outbox_events · restaurant_operating_hours&#10;preorder_settings · dish_availability · dish_slot_override&#10;order_status_history · failed_delivery · notifications&#10;restaurant_settings (table config + time slots)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d1fae5;strokeColor=#059669;fontColor=#064e3b;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="620" y="800" width="440" height="100" as="geometry" />
         </mxCell>
         <mxCell id="RD" value="Redis&#10;rate limits · lockout state" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d1fae5;strokeColor=#059669;fontColor=#064e3b;fontSize=11;" vertex="1" parent="1">
@@ -82,7 +82,7 @@
         <mxCell id="TW" value="Twilio&#10;SMS + WhatsApp" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#831843;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1130" y="90" width="200" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="SM" value="SMTP / Gmail&#10;Email OTP + HTML templates" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#831843;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="SM" value="SMTP / Gmail&#10;Email OTP + HTML templates&#10;(SavoryStay &lt;email&gt;)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#831843;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1130" y="180" width="200" height="60" as="geometry" />
         </mxCell>
         <mxCell id="ST" value="Stripe&#10;PaymentIntent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#831843;fontSize=11;" vertex="1" parent="1">
@@ -154,7 +154,7 @@
         <mxCell id="E18" value="SSE stream /api/v1/realtime/stream" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;fontSize=10;strokeColor=#059669;" edge="1" parent="1" source="SVC" target="C3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="E19" value="live events → bell · order refresh" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=10;strokeColor=#059669;" edge="1" parent="1" source="C3" target="C1">
+        <mxCell id="E19" value="live events → bell · order refresh · plate count" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=10;strokeColor=#059669;" edge="1" parent="1" source="C3" target="C1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 

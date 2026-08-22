@@ -14,9 +14,9 @@ SavoryStay is a complete restaurant operations platform that connects three side
 |---|---|
 | **Guests / Customers** | Browse your menu, pre-book guaranteed pickup slots, pay online (Stripe, PayPal, UPI, Cash), and track their order live — from *preparing* to *packed & ready*. Customers can belong to **multiple restaurants** under one account. The system checks item availability at checkout — if something goes out of stock while you're browsing, you'll see a warning before paying. |
 | **Kitchen / Chefs** | See a live order queue, cook → pack orders in order, and plan tomorrow's ingredients from pre-orders. |
-| **Management / Owners** | Control the menu, prices, pre-order rules, staff accounts, customer memberships, and (as Super Admin) run an entire chain of restaurants from one login. |
+| **Management / Owners** | Control the menu, prices, pre-order rules, staff accounts, table configurations, time slots, customer memberships, and (as Super Admin) run an entire chain of restaurants from one login. |
 
-One platform can serve **many restaurants** — each restaurant keeps its own menu, staff, orders, and settings, fully isolated from the others. A single customer account can be a member of multiple restaurants and switch between them after login.
+One platform can serve **many restaurants** — each restaurant keeps its own menu, staff, orders, settings, and table configuration, fully isolated from the others. A single customer account can be a member of multiple restaurants and switch between them after login.
 
 ---
 
@@ -30,6 +30,9 @@ One platform can serve **many restaurants** — each restaurant keeps its own me
 - **Handle holidays and half-days cleanly** — mark closed days or a "second half closed" day once; the system blocks pre-orders for those days automatically.
 - **The right people, the right powers** — chefs can cook and pack; only managers/admins can change prices or menus. No accidental edits, no chaos.
 - **Everything stays in sync, live** — customers, kitchen, and management all see the same real-time state.
+- **Manage daily plate limits** — each dish can have a maximum number of plates per day. Once the limit is reached, the dish shows as unavailable. This prevents over-commitment and ensures quality.
+- **Track table capacity in real-time** — configure your restaurant's seating (2-seater, 4-seater, 6-seater tables with counts) and the system shows live availability for each time slot.
+- **Manage operational supplies** — track not just food ingredients but also handwash liquid, parcel boxes (plastic/aluminum, small/medium/large), napkins, cutlery, and garbage bags. Know when supplies are running low before you run out.
 
 ---
 
@@ -67,20 +70,20 @@ A customer creates a single account with one email and one password. They can th
 
 ## 4. How Pre-Orders Work (The Rules in Plain Language)
 
-### 3.1 Order window
+### 4.1 Order window
 Customers can pre-order for **tomorrow up to a week ahead** (this horizon is adjustable). They pick the *date* and a *pickup time*.
 
-### 3.2 Cutoff time
+### 4.2 Cutoff time
 Orders for a given day **close at the cutoff time on the day before** — by default **9:00 AM** (adjustable per restaurant).
 
 > Example: today is Monday. Customers may pre-order for **Tuesday until Monday 9:00 AM**. After that, Tuesday is closed for pre-orders.
 
-### 3.3 Restaurant open days & half-days
+### 4.3 Restaurant open days & half-days
 - A day marked **closed** (weekly holiday, festival, etc.) blocks all pre-orders for that day.
 - A day that **closes early (by or before 2:00 PM)** is treated as a **"second half closed"** day and also blocks pre-orders.
-- On normal days, customers can only pick a pickup time **inside your opening hours** (e.g. between 9:00 AM and 11:00 PM).
+- On normal days, customers can only pick a pickup time **inside your opening hours** (e.g. between 11:00 AM and 11:00 PM).
 
-### 3.4 Which dishes are cooked on which days
+### 4.4 Which dishes are cooked on which days
 Each dish has a **weekly cooking schedule** — e.g.:
 
 | Dish | Cooked on |
@@ -92,7 +95,7 @@ Each dish has a **weekly cooking schedule** — e.g.:
 
 Customers can only pre-order a dish for a day it's actually scheduled. The menu shows a **pre-order availability calendar** so guests can see at a glance which days have openings — and they can filter by dish.
 
-### 3.5 Special openings and closures (one-off overrides)
+### 4.5 Special openings and closures (one-off overrides)
 A manager can **open a dish on an extra day** for a special occasion (e.g. Pulao on a one-off Friday), or **close a dish on a day it would normally be available** (e.g. supplier issue). Rules of precedence:
 
 1. If you **explicitly close** a dish for a date → it's closed, no matter what.
@@ -100,7 +103,7 @@ A manager can **open a dish on an extra day** for a special occasion (e.g. Pulao
 3. Otherwise → the normal weekly schedule applies.
 4. **Restaurant closure always wins** — a closed/half-closed day blocks everything regardless of dish settings.
 
-### 3.6 Payment methods
+### 4.6 Payment methods
 
 | Method | How it works |
 |---|---|
@@ -111,7 +114,33 @@ A manager can **open a dish on an extra day** for a special occasion (e.g. Pulao
 
 ---
 
-## 5. Ingredient Estimation (Smart Prep Planning)
+## 5. Table Configuration & Time Slots
+
+### 5.1 Table Types
+Each restaurant configures its own seating layout:
+- **2-Seater tables** — for couples and solo diners
+- **4-Seater tables** — for small families and groups
+- **6-Seater tables** — for larger parties
+
+The system tracks how many tables of each type are available and how many are booked for a given date + time slot.
+
+### 5.2 Time Slots
+- **Pickup orders**: customers choose a wait time (15 Mins, 30 Mins, 45 Mins, 1 Hour, 1.5 Hours)
+- **Dine-in orders**: customers choose a time-of-day (12:00 PM, 12:30 PM, 1:00 PM, etc.)
+
+When a customer selects a time slot for dine-in, the system shows real-time table availability. If all tables of a type are booked, that type shows as unavailable.
+
+### 5.3 Plate Availability
+Every dish can have a **daily plate limit** — the maximum number of plates that can be ordered per day. For example:
+- Butter Chicken: 30 plates/day
+- Hyderabadi Biryani: 20 plates/day
+- Masala Chai: 80 plates/day
+
+When orders exceed the limit, the dish shows as unavailable to new customers. This prevents over-commitment and ensures quality.
+
+---
+
+## 6. Ingredient Estimation (Smart Prep Planning)
 
 When you configure a dish, you can record the **ingredients needed for one plate**:
 
@@ -141,15 +170,38 @@ This turns "rough guess" into "exact shopping list" — and it's always recomput
 
 ---
 
-## 6. Daily Workflow for Staff
+## 7. Operational Supplies Management
+
+Beyond food ingredients, the platform tracks operational supplies that affect daily operations:
+
+| Category | Items Tracked | Why It Matters |
+|---|---|---|
+| **Hygiene** | Handwash Liquid, Dishwashing Liquid | Staff health compliance, inspection readiness |
+| **Packaging (Plastic)** | Parcel Box Small/Medium/Large | Takeaway orders — different sizes for different order volumes |
+| **Packaging (Aluminum)** | Foil Container Small/Medium/Large | Hot food takeaway — keeps food warm longer |
+| **Supplies** | Napkins, Tissue Boxes | Customer experience, table setting |
+| **Cutlery** | Plastic Spoons, Forks, Knives | Takeaway orders |
+| **Bags** | Plastic Bags (Large), Paper Bags (Takeaway) | Order packaging |
+| **Other** | Garbage Bags | Waste management |
+
+Each supply item has:
+- **Current stock** (e.g., 200 plastic parcel boxes)
+- **Reorder level** (e.g., 60 — alert when stock drops below this)
+- **Category** (Hygiene, Packaging, Supplies, etc.)
+
+When stock drops below the reorder level, the ingredient planning screen shows a **low stock alert**. This helps managers reorder before running out during peak hours.
+
+---
+
+## 8. Daily Workflow for Staff
 
 ### Customer
 1. **Sign up or log in** — create an account with username, email, and password (verified via OTP). One account works across all restaurants.
 2. **Join restaurants** — after your first login, join the restaurants you want to order from. You can join as many as you like. **Or simply place an order** — most restaurants auto-join you on your first order, so the restaurant appears in your picker automatically.
 3. **Select a restaurant** — when you log in, pick which restaurant you want to order from. Your menu, cart, and orders are scoped to that restaurant.
-4. **Browse the menu** — veg/non-veg filters, spice levels, categories.
+4. **Browse the menu** — veg/non-veg filters, spice levels, categories. See daily plate counts and remaining plates for each dish.
 5. Add dishes to the cart (no account needed to browse).
-6. Choose **Dine-in, Pickup, or Pre-Order**. For pre-order, pick an available date + pickup time.
+6. Choose **Dine-in, Pickup, or Pre-Order**. For pre-order, pick an available date + pickup time. For dine-in, see real-time table availability. For pickup, choose a wait time.
 7. Pay with **Stripe, PayPal, UPI, or Cash (pay at pickup)**.
 8. The system checks item availability at checkout — if something went out of stock while browsing, you'll see a warning and can't proceed until you remove it.
 9. Watch the order live: *New → Preparing → Packed & Ready → Completed*.
@@ -165,7 +217,7 @@ This turns "rough guess" into "exact shopping list" — and it's always recomput
 
 ### Manager / Admin
 - **Menu & prices** — add dishes, edit prices, upload photos, set veg/non-veg and spice level, define per-plate ingredient recipes. When adding a dish, select ingredients from the restaurant's ingredient master list (not free text). If an ingredient is missing, create it directly from the recipe editor.
-- **Ingredients** — manage the restaurant's ingredient master list. Add, edit, deactivate, or reactivate ingredients. Search by name, filter by status. See how many dishes use each ingredient. Stock levels and usage tracking.
+- **Ingredients** — manage the restaurant's ingredient master list. Add, edit, deactivate, or reactivate ingredients. Search by name, filter by status. See how many dishes use each ingredient. Stock levels and usage tracking. Track both food ingredients and operational supplies (handwash, parcel boxes, napkins, cutlery).
 - **Pre-Orders tab** — set opening hours per day, the cutoff time and booking horizon, each dish's weekly schedule, and open/close special dates.
 - **Orders** — complete, decline, or cancel orders. **Cash (Pay on Pickup)** orders stay PENDING until the customer pays at the counter — mark them PAID when cash is collected. **Cancellations** are tracked with who cancelled, when, and why. **Refunds** for paid orders are initiated through the system (not manual).
 - **Staff** — create manager/chef accounts, including combined roles (e.g. Manager + Chef).
@@ -177,6 +229,7 @@ This turns "rough guess" into "exact shopping list" — and it's always recomput
 - **Payment Reconciliation** — gross, refunds, net, and breakdown by payment method (UPI, Card, Cash).
 - **Exception Center** — see all operational exceptions in one place: payment failures, delayed orders, ingredient shortages, pending cash, sold-out dishes.
 - **Audit Trail** — see who changed what and when: menu edits, order cancellations, refunds, ingredient changes.
+- **Table Configuration** — configure seating types (2-seater, 4-seater, 6-seater) and table counts. Set pickup time slots and dine-in time slots for the checkout modal.
 
 ### Owner / Super Admin
 - See **every restaurant** in one dashboard.
@@ -185,7 +238,7 @@ This turns "rough guess" into "exact shopping list" — and it's always recomput
 
 ---
 
-## 7. Roles at a Glance
+## 9. Roles at a Glance
 
 | Capability | Customer | Chef | Manager | Admin | Super Admin |
 |---|---|---|---|---|---|
@@ -198,10 +251,13 @@ This turns "rough guess" into "exact shopping list" — and it's always recomput
 | Add kitchen notes | — | ✅ | ✅ | ✅ | ✅ |
 | Edit menu, prices, recipes | — | ❌ | ✅ | ✅ | ✅ |
 | Manage ingredients / stock | — | ❌ | ✅ | ✅ | ✅ |
+| Manage operational supplies | — | ❌ | ✅ | ✅ | ✅ |
 | Initiate refunds | — | ❌ | ✅ | ✅ | ✅ |
 | View dashboard, reconciliation, audit | — | ❌ | ✅ | ✅ | ✅ |
 | Manage staff | — | ❌ | ❌ | ✅ | ✅ |
 | View/remove customer members | — | ❌ | ✅ (view) | ✅ | ✅ |
+| Configure tables & time slots | — | ❌ | ✅ | ✅ | ✅ |
+| Set daily plate limits | — | ❌ | ✅ | ✅ | ✅ |
 | Manage all restaurants | — | ❌ | ❌ | ❌ | ✅ |
 | Configure pre-orders (hours / cutoff / schedules) | — | ❌ | ✅ | ✅ | ✅ |
 
@@ -209,40 +265,46 @@ A staff member can hold **multiple roles** (e.g. Manager + Chef) and automatical
 
 ---
 
-## 8. What Customers Experience (Sales Pitch)
+## 10. What Customers Experience (Sales Pitch)
 
 - 🗓️ **Pre-book guaranteed pickup slots** — no waiting, no disappointment.
+- 🍽️ **See daily plate limits** — know how many of each dish are available today.
 - 🔍 **Availability calendar on the menu** — see exactly which days each dish can be pre-ordered.
+- 🪑 **Real-time table availability** — see which tables are free for your preferred time slot.
 - 🔔 **Real-time order tracking** — know when your food is being cooked and when it's ready.
 - 💳 **Pay your way** — cards (Stripe), PayPal, UPI, or cash.
 - 📱 **Notifications on every step** — in-app, SMS, WhatsApp, and email.
 
 ---
 
-## 9. Getting Started (for the business owner)
+## 11. Getting Started (for the business owner)
 
-1. **The system comes pre-loaded** with two demo restaurants, sample menus, staff accounts, and sensible pre-order defaults (Mon & Sat close 2 PM; Sunday weekly holiday).
+1. **The system comes pre-loaded** with two demo restaurants, 50 menu items (25 per restaurant) with dish-specific images, 42 ingredients each (food + operational supplies), full recipes, 94+ orders across all statuses, restaurant settings (table config + time slots), customer memberships, and sample notifications.
 2. **Set your real operating hours** in the Pre-Orders tab (or ask the team that sets it up for you).
 3. **Review the cutoff time** (default 9:00 AM the day before) and booking horizon (default 7 days). Each restaurant sets its **own** cutoff — the only rule is it can't be later than the restaurant's opening time (orders for a day close on the day before, at your chosen time).
 4. **Add your dishes with recipes** — ingredients per plate — so the forecast works.
 5. **Set each dish's weekly cooking schedule** — this is what protects you from taking orders for dishes you don't cook that day.
-6. **Open special days** (festival runs) or **close special days** (holidays) as needed.
-7. Watch the **forecast each evening** — use the 7-day date picker to plan ahead. Closed days are automatically greyed out.
-8. **Configure email** — for OTP delivery and order notifications, the system uses **Gmail SMTP**. The backend owner needs to set up a Gmail App Password (see the Developer Guide for step-by-step instructions). In development, if email credentials are not configured, the system falls back to demo mode (OTP shown in the console) so everything still works.
+6. **Configure your table layout** — set the number of 2-seater, 4-seater, and 6-seater tables in Restaurant Settings.
+7. **Set time slots** — configure pickup wait times and dine-in time-of-day options for the checkout modal.
+8. **Set daily plate limits** — for dishes with limited supply (e.g., special biryani), set the maximum plates per day.
+9. **Open special days** (festival runs) or **close special days** (holidays) as needed.
+10. Watch the **forecast each evening** — use the 7-day date picker to plan ahead. Closed days are automatically greyed out.
+11. **Configure email** — for OTP delivery and order notifications, the system uses **Gmail SMTP**. The backend owner needs to set up a Gmail App Password (see the Developer Guide for step-by-step instructions). In development, if email credentials are not configured, the system falls back to demo mode (OTP shown in the console) so everything still works.
 
 ---
 
-## 10. Reliability & Trust
+## 12. Reliability & Trust
 
 - **Payments are verified server-side** — the amount you're charged is confirmed before an order is marked paid. Nobody can fake a payment.
 - **Accounts are verified with OTP** — reduces fake registrations; login is rate-limited to stop brute-force attacks.
-- **Email notifications** — OTP codes, order updates, and receipts are sent via email. In development, if email credentials are not configured, the system falls back to demo mode (OTP shown in the console) so everything still works.
+- **Email notifications** — OTP codes, order updates, and receipts are sent via email. The system always returns the OTP code in the API response as a fallback, so even if emails land in spam, customers can still complete signup.
 - **Your data is isolated per restaurant** — staff of one restaurant can never see another's data.
 - **Nothing gets lost** — notifications are built on a reliable delivery pipeline with retries, so order updates actually reach customers.
+- **Outbox cleanup** — old published events are automatically purged every 6 hours to keep the database lean.
 
 ---
 
-## 11. Questions & Answers
+## 13. Questions & Answers
 
 **Q: Can a customer pre-order more than a week ahead?**
 The booking horizon is configurable (default 7 days). Change it in the Pre-Orders settings.
@@ -336,6 +398,21 @@ The Exception Center aggregates all operational issues in one place: payment fai
 
 **Q: Is there an audit trail for changes?**
 Yes. Every important change is recorded: who made it, when, what changed, and why. This covers menu edits, order cancellations, refunds, ingredient changes, and inventory adjustments. Managers can view the audit trail from the dashboard.
+
+**Q: How do I configure tables for my restaurant?**
+Go to Restaurant Settings (accessible via the settings endpoint). Configure the number of 2-seater, 4-seater, and 6-seater tables. The system uses this to show real-time table availability to customers during checkout.
+
+**Q: What are pickup time slots?**
+Pickup time slots are the wait-time options shown to customers when they choose Pickup order type. Examples: "15 Mins", "30 Mins", "1 Hour". These are configurable per restaurant.
+
+**Q: What are dine-in time slots?**
+Dine-in time slots are the time-of-day options shown to customers when they choose Dine-in. Examples: "12:00 PM", "7:30 PM", "9:00 PM". These are configurable per restaurant.
+
+**Q: Can I limit the number of plates for a special dish?**
+Yes. Set the `dailyPlateCount` for any menu item. For example, if you only prepare 20 portions of Hyderabadi Biryani per day, set the plate count to 20. Once 20 orders include that dish, it shows as unavailable to new customers.
+
+**Q: What operational supplies should I track?**
+Track anything you need to fulfill orders: handwash liquid, dishwashing liquid, parcel boxes (plastic and aluminum in various sizes), napkins, tissue boxes, plastic cutlery (spoons, forks, knives), plastic bags, paper bags, and garbage bags. Each has a stock level and reorder alert.
 
 ---
 
