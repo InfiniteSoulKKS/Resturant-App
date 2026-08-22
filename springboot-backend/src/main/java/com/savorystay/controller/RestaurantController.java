@@ -249,30 +249,37 @@ public class RestaurantController {
     }
 
     /**
-     * Generate time slot prefixes for a 1-hour window around the requested slot.
+     * Generate time slot strings for a 1-hour window around the requested slot.
      * For example, if the requested slot is "12:00 PM" and slots are every 30 min,
-     * returns ["2026-08-22 12:00 PM", "2026-08-22 12:30 PM"] (both blocked for 1 hour).
-     * This prevents double-booking of the same table.
+     * returns ["12:00 PM", "12:30 PM", "1:00 PM"] (all blocked for 1 hour).
+     * DINE_IN time_slot is stored as just the time (e.g. "12:00 PM"), not datetime.
      */
     private List<String> getTimeSlotPrefixesWithinOneHour(String date, String timeSlot) {
-        List<String> prefixes = new ArrayList<>();
+        List<String> slots = new ArrayList<>();
+        String cleanSlot = timeSlot.trim();
+        // Strip date prefix if present (e.g. "2026-08-22 12:00 PM" → "12:00 PM")
+        int pmIdx = cleanSlot.indexOf("PM");
+        int amIdx = cleanSlot.indexOf("AM");
+        int idx = Math.max(pmIdx, amIdx);
+        if (idx > 0) {
+            // Find the space before "AM"/"PM" and the space before that to get "12:00 PM"
+            String before = cleanSlot.substring(0, idx + 2).trim();
+            int lastSpace = before.lastIndexOf(' ');
+            if (lastSpace > 0) {
+                cleanSlot = before.substring(lastSpace + 1);
+            }
+        }
+        slots.add(cleanSlot);
         try {
-            // Parse time slot: "12:00 PM" → LocalTime
             DateTimeFormatter fmt12 = DateTimeFormatter.ofPattern("h:mm a");
-            LocalTime requestedTime = LocalTime.parse(timeSlot.trim(), fmt12);
-            String datePrefix = date + " " + timeSlot.trim();
-            prefixes.add(datePrefix);
-
-            // Add next slots within 1 hour (assuming 30-min slot intervals)
+            LocalTime requestedTime = LocalTime.parse(cleanSlot, fmt12);
             for (int i = 1; i <= 2; i++) {
                 LocalTime next = requestedTime.plusMinutes(i * 30L);
-                String nextSlot = next.format(fmt12);
-                prefixes.add(date + " " + nextSlot);
+                slots.add(next.format(fmt12));
             }
         } catch (Exception e) {
-            // Fallback: just use the exact slot
-            prefixes.add(date + " " + timeSlot.trim());
+            // fallback: just the exact slot
         }
-        return prefixes;
+        return slots;
     }
 }

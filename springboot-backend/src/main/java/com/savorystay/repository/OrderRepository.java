@@ -36,32 +36,30 @@ public interface OrderRepository extends JpaRepository<Order, String> {
                                         @Param("to") LocalDateTime to);
 
     /**
-     * Count active DINE_IN orders grouped by guest count for a restaurant on a
-     * given date. Used to determine table availability per seating type.
+     * Count active DINE_IN orders grouped by guest count for a restaurant.
      * Returns rows of [guests, count].
-     * Time slots within 1 hour of the requested slot are also counted as booked
-     * to prevent double-booking.
+     * DINE_IN time_slot is stored as just the time (e.g. "12:00 PM"), not datetime.
      */
     @Query(value = "SELECT o.guests AS guests, COUNT(*) AS cnt FROM orders o " +
            "WHERE o.restaurant_id = :restaurantId " +
            "AND o.order_type = 'DINE_IN' " +
            "AND o.order_status NOT IN ('DECLINED', 'CANCELLED', 'COMPLETED') " +
-           "AND o.time_slot LIKE CONCAT(:datePrefix, '%') " +
+           "AND o.time_slot = :timeSlot " +
            "GROUP BY o.guests", nativeQuery = true)
     List<Object[]> countDineInByGuestsOnDate(@Param("restaurantId") String restaurantId,
-                                              @Param("datePrefix") String datePrefix);
+                                              @Param("timeSlot") String timeSlot);
 
     /**
      * Count active DINE_IN orders grouped by guest count for overlapping time windows.
-     * Accepts a list of time slot prefixes (e.g., ["2026-08-22 12:00 PM", "2026-08-22 12:30 PM"])
+     * Accepts a list of time slots (e.g., ["12:00 PM", "12:30 PM", "1:00 PM"])
      * to count bookings within a 1-hour window around the requested time.
      */
     @Query(value = "SELECT o.guests AS guests, COUNT(*) AS cnt FROM orders o " +
            "WHERE o.restaurant_id = :restaurantId " +
            "AND o.order_type = 'DINE_IN' " +
            "AND o.order_status NOT IN ('DECLINED', 'CANCELLED', 'COMPLETED') " +
-           "AND o.time_slot IN :timeSlotPrefixes " +
+           "AND o.time_slot IN :timeSlots " +
            "GROUP BY o.guests", nativeQuery = true)
     List<Object[]> countDineInByTimeSlots(@Param("restaurantId") String restaurantId,
-                                            @Param("timeSlotPrefixes") List<String> timeSlotPrefixes);
+                                            @Param("timeSlots") List<String> timeSlots);
 }

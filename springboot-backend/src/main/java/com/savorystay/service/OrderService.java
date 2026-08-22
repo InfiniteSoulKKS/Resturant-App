@@ -774,12 +774,11 @@ public class OrderService {
      */
     private void broadcastTableAvailability(String restaurantId, String timeSlot) {
         try {
-            // Extract date prefix from timeSlot (e.g. "12:00 PM" → today's date)
-            String datePrefix = LocalDate.now().toString();
+            String today = LocalDate.now().toString();
 
-        // Count current DINE_IN bookings per guest count (including overlapping 1-hour window)
-        List<String> timeSlotPrefixes = getTimeSlotPrefixesWithinOneHour(datePrefix, timeSlot);
-        List<Object[]> booked = orderRepository.countDineInByTimeSlots(restaurantId, timeSlotPrefixes);
+            // Count current DINE_IN bookings per guest count (including overlapping 1-hour window)
+            List<String> timeSlots = getTimeSlotsWithinOneHour(timeSlot);
+            List<Object[]> booked = orderRepository.countDineInByTimeSlots(restaurantId, timeSlots);
         Map<Integer, Long> bookedByGuests = new HashMap<>();
         for (Object[] row : booked) {
             Integer guests = ((Number) row[0]).intValue();
@@ -789,7 +788,7 @@ public class OrderService {
 
             Map<String, Object> event = new HashMap<>();
             event.put("restaurantId", restaurantId);
-            event.put("date", datePrefix);
+            event.put("date", today);
             event.put("timeSlot", timeSlot);
             event.put("bookedByGuests", bookedByGuests);
             event.put("timestamp", java.time.LocalDateTime.now().toString());
@@ -834,22 +833,34 @@ public class OrderService {
     }
 
     /**
-     * Generate time slot prefixes for a 1-hour window around the requested slot.
-     * Tables are blocked for 1 hour after booking to prevent double-booking.
+     * Generate time slot strings for a 1-hour window around the requested slot.
+     * DINE_IN time_slot is stored as just the time (e.g. "12:00 PM"), not datetime.
      */
-    private List<String> getTimeSlotPrefixesWithinOneHour(String date, String timeSlot) {
-        List<String> prefixes = new ArrayList<>();
+    private List<String> getTimeSlotsWithinOneHour(String timeSlot) {
+        List<String> slots = new ArrayList<>();
+        String cleanSlot = timeSlot.trim();
+        // Strip date prefix if present (e.g. "2026-08-22 12:00 PM" → "12:00 PM")
+        int pmIdx = cleanSlot.indexOf("PM");
+        int amIdx = cleanSlot.indexOf("AM");
+        int idx = Math.max(pmIdx, amIdx);
+        if (idx > 0) {
+            String before = cleanSlot.substring(0, idx + 2).trim();
+            int lastSpace = before.lastIndexOf(' ');
+            if (lastSpace > 0) {
+                cleanSlot = before.substring(lastSpace + 1);
+            }
+        }
+        slots.add(cleanSlot);
         try {
             java.time.format.DateTimeFormatter fmt12 = java.time.format.DateTimeFormatter.ofPattern("h:mm a");
-            java.time.LocalTime requestedTime = java.time.LocalTime.parse(timeSlot.trim(), fmt12);
-            prefixes.add(date + " " + timeSlot.trim());
+            java.time.LocalTime requestedTime = java.time.LocalTime.parse(cleanSlot, fmt12);
             for (int i = 1; i <= 2; i++) {
                 java.time.LocalTime next = requestedTime.plusMinutes(i * 30L);
-                prefixes.add(date + " " + next.format(fmt12));
+                slots.add(next.format(fmt12));
             }
         } catch (Exception e) {
-            prefixes.add(date + " " + timeSlot.trim());
+            // fallback: just the exact slot
         }
-        return prefixes;
+        return slots;
     }
 }
