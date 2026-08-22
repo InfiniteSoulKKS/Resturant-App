@@ -98,7 +98,7 @@ public class RestaurantController {
                 .distinct()
                 .collect(java.util.stream.Collectors.toList());
         List<Object[]> booked = orderRepository.countDineInByTimeSlots(id, date, timeSlots, timeSlots24h);
-        log.debug("Table avail: restaurant={}, date={}, slots12h={}, slots24h={}, booked={}", id, date, timeSlots, timeSlots24h, booked.size());
+        log.info("Table avail: restaurant={}, date={}, slots12h={}, slots24h={}, booked={}", id, date, timeSlots, timeSlots24h, booked.size());
         Map<Integer, Long> bookedByGuests = new HashMap<>();
         for (Object[] row : booked) {
             Integer guests = ((Number) row[0]).intValue();
