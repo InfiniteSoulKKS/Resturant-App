@@ -91,8 +91,13 @@ public class RestaurantController {
 
         // Count existing DINE_IN orders for this date+slot and overlapping slots
         // Tables are blocked for 1 hour after booking to prevent double-booking
-        List<String> timeSlotPrefixes = getTimeSlotPrefixesWithinOneHour(date, timeSlot);
-        List<Object[]> booked = orderRepository.countDineInByTimeSlots(id, timeSlotPrefixes);
+        // Pass both 12h ("12:00 PM") and 24h ("13:00") formats since seeder uses 24h
+        List<String> timeSlots = getTimeSlotPrefixesWithinOneHour(date, timeSlot);
+        List<String> timeSlots24h = timeSlots.stream()
+                .map(this::to24Hour)
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+        List<Object[]> booked = orderRepository.countDineInByTimeSlots(id, date, timeSlots, timeSlots24h);
         Map<Integer, Long> bookedByGuests = new HashMap<>();
         for (Object[] row : booked) {
             Integer guests = ((Number) row[0]).intValue();
@@ -281,5 +286,20 @@ public class RestaurantController {
             // fallback: just the exact slot
         }
         return slots;
+    }
+
+    /**
+     * Convert 12-hour time format to 24-hour format.
+     * e.g. "1:00 PM" → "13:00", "12:00 PM" → "12:00"
+     * Returns the input unchanged if parsing fails.
+     */
+    private String to24Hour(String time12h) {
+        try {
+            DateTimeFormatter fmt12 = DateTimeFormatter.ofPattern("h:mm a");
+            LocalTime t = LocalTime.parse(time12h.trim(), fmt12);
+            return t.format(DateTimeFormatter.ofPattern("HH:mm"));
+        } catch (Exception e) {
+            return time12h; // already 24h or unparseable
+        }
     }
 }

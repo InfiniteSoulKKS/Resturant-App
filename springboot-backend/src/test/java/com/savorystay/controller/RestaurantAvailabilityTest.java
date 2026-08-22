@@ -61,7 +61,7 @@ class RestaurantAvailabilityTest {
         // 1 two-seater booked, 0 four-seaters booked
         List<Object[]> bookedData = new ArrayList<>();
         bookedData.add(new Object[]{2, 1L});
-        when(orderRepository.countDineInByTimeSlots(eq(REST_ID), anyList()))
+        when(orderRepository.countDineInByTimeSlots(eq(REST_ID), anyString(), anyList(), anyList()))
                 .thenReturn(bookedData);
 
         ResponseEntity<?> response = controller.getTableAvailability(
@@ -100,7 +100,7 @@ class RestaurantAvailabilityTest {
         // All 2 two-seaters booked
         List<Object[]> bookedData2 = new ArrayList<>();
         bookedData2.add(new Object[]{2, 2L});
-        when(orderRepository.countDineInByTimeSlots(eq(REST_ID), anyList()))
+        when(orderRepository.countDineInByTimeSlots(eq(REST_ID), anyString(), anyList(), anyList()))
                 .thenReturn(bookedData2);
 
         ResponseEntity<?> response = controller.getTableAvailability(
@@ -118,7 +118,7 @@ class RestaurantAvailabilityTest {
     @Test
     void tableAvailability_noSettings_usesDefaults() {
         when(restaurantSettingsRepository.findByRestaurantId(REST_ID)).thenReturn(Optional.empty());
-        when(orderRepository.countDineInByTimeSlots(eq(REST_ID), anyList()))
+        when(orderRepository.countDineInByTimeSlots(eq(REST_ID), anyString(), anyList(), anyList()))
                 .thenReturn(List.of());
 
         ResponseEntity<?> response = controller.getTableAvailability(

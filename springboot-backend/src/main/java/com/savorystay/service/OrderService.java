@@ -778,7 +778,11 @@ public class OrderService {
 
             // Count current DINE_IN bookings per guest count (including overlapping 1-hour window)
             List<String> timeSlots = getTimeSlotsWithinOneHour(timeSlot);
-            List<Object[]> booked = orderRepository.countDineInByTimeSlots(restaurantId, timeSlots);
+            List<String> timeSlots24h = timeSlots.stream()
+                    .map(this::to24Hour)
+                    .distinct()
+                    .collect(java.util.stream.Collectors.toList());
+            List<Object[]> booked = orderRepository.countDineInByTimeSlots(restaurantId, today, timeSlots, timeSlots24h);
         Map<Integer, Long> bookedByGuests = new HashMap<>();
         for (Object[] row : booked) {
             Integer guests = ((Number) row[0]).intValue();
@@ -862,5 +866,19 @@ public class OrderService {
             // fallback: just the exact slot
         }
         return slots;
+    }
+
+    /**
+     * Convert 12-hour time format to 24-hour format.
+     * e.g. "1:00 PM" → "13:00"
+     */
+    private String to24Hour(String time12h) {
+        try {
+            java.time.format.DateTimeFormatter fmt12 = java.time.format.DateTimeFormatter.ofPattern("h:mm a");
+            java.time.LocalTime t = java.time.LocalTime.parse(time12h.trim(), fmt12);
+            return t.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+        } catch (Exception e) {
+            return time12h;
+        }
     }
 }

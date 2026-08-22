@@ -50,16 +50,19 @@ public interface OrderRepository extends JpaRepository<Order, String> {
                                               @Param("timeSlot") String timeSlot);
 
     /**
-     * Count active DINE_IN orders grouped by guest count for overlapping time windows.
-     * Accepts a list of time slots (e.g., ["12:00 PM", "12:30 PM", "1:00 PM"])
-     * to count bookings within a 1-hour window around the requested time.
+     * Count active DINE_IN orders for TODAY grouped by guest count.
+     * Only counts orders placed today (based on created_at) for accurate daily availability.
+     * Matches both 12h ("12:00 PM") and 24h ("13:00") time slot formats.
      */
     @Query(value = "SELECT o.guests AS guests, COUNT(*) AS cnt FROM orders o " +
            "WHERE o.restaurant_id = :restaurantId " +
            "AND o.order_type = 'DINE_IN' " +
            "AND o.order_status NOT IN ('DECLINED', 'CANCELLED', 'COMPLETED') " +
-           "AND o.time_slot IN :timeSlots " +
+           "AND DATE(o.created_at) = :orderDate " +
+           "AND ( o.time_slot IN :timeSlots OR o.time_slot IN :timeSlots24h ) " +
            "GROUP BY o.guests", nativeQuery = true)
     List<Object[]> countDineInByTimeSlots(@Param("restaurantId") String restaurantId,
-                                            @Param("timeSlots") List<String> timeSlots);
+                                            @Param("orderDate") String orderDate,
+                                            @Param("timeSlots") List<String> timeSlots,
+                                            @Param("timeSlots24h") List<String> timeSlots24h);
 }
