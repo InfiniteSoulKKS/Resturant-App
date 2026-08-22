@@ -56,6 +56,7 @@ public class OrderService {
     private final CustomerRestaurantService customerRestaurantService;
     private final AuditService auditService;
     private final RefundRepository refundRepository;
+    private final RealtimeService realtimeService;
 
     private static final List<String> FLOW = List.of("NEW", "PREPARING", "PACKED_READY", "COMPLETED");
 
@@ -116,6 +117,25 @@ public class OrderService {
                 throw new IllegalArgumentException("Item is sold out: " + menuItem.getTitle());
             }
 
+            // Daily plate cap enforcement — reject if ordering would exceed the daily limit
+            if (menuItem.getDailyPlateCount() != null) {
+                LocalDate today = LocalDate.now();
+                long alreadyOrdered = orderItemRepository.countPlatesOrderedForItem(
+                        menuItemId, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+                long remaining = menuItem.getDailyPlateCount() - alreadyOrdered;
+                if (remaining <= 0) {
+                    throw new IllegalArgumentException(
+                            menuItem.getTitle() + " is sold out for today — all "
+                                    + menuItem.getDailyPlateCount() + " plates have been ordered.");
+                }
+                if (qty > remaining) {
+                    throw new IllegalArgumentException(
+                            "Only " + remaining + " plate" + (remaining == 1 ? "" : "s")
+                                    + " of " + menuItem.getTitle() + " remaining for today."
+                                    + " You ordered " + qty + ".");
+                }
+            }
+
             // Use the effective price (latest price_rule <= now), falling back to base price
             BigDecimal effectivePrice = menuService.getEffectivePrice(menuItem.getId(), menuItem.getPrice());
             BigDecimal lineTotal = effectivePrice.multiply(BigDecimal.valueOf(qty));
@@ -169,6 +189,16 @@ public class OrderService {
 
         log.info("Order {} placed by {} at restaurant {} (outbox: order.created)",
                 saved.getOrderNumber(), customerName, restaurantId);
+
+        // Real-time: broadcast table availability change for DINE_IN orders
+        if ("DINE_IN".equals(effectiveOrderType) && timeSlot != null) {
+            broadcastTableAvailability(restaurantId, timeSlot);
+        }
+
+        // Also broadcast plate availability for each ordered item (plates decremented)
+        for (OrderItem oi : orderItems) {
+            broadcastPlateCount(restaurantId, oi.getMenuItemId());
+        }
 
         // Auto-join: if the restaurant has autoJoinCustomers enabled and this
         // customer is not yet a member, add them automatically so they can
@@ -734,4 +764,71 @@ public class OrderService {
     }
 
     // Transition validation is now handled by OrderStateMachine.validate()
+
+    // ─── REAL-TIME SSE BROADCASTS ──────────────────────────────────────
+
+    /**
+     * Broadcast table availability for a restaurant + date prefix to all
+     * connected users via SSE. The frontend checkout modal picks this up
+     * and refreshes the table availability cards in real time.
+     */
+    private void broadcastTableAvailability(String restaurantId, String timeSlot) {
+        try {
+            // Extract date prefix from timeSlot (e.g. "12:00 PM" → today's date)
+            String datePrefix = LocalDate.now().toString();
+
+            // Count current DINE_IN bookings per guest count
+            List<Object[]> booked = orderRepository.countDineInByGuestsOnDate(restaurantId, datePrefix + " " + timeSlot);
+            Map<Integer, Long> bookedByGuests = new HashMap<>();
+            for (Object[] row : booked) {
+                Integer guests = ((Number) row[0]).intValue();
+                Long count = ((Number) row[1]).longValue();
+                bookedByGuests.put(guests, count);
+            }
+
+            Map<String, Object> event = new HashMap<>();
+            event.put("restaurantId", restaurantId);
+            event.put("date", datePrefix);
+            event.put("timeSlot", timeSlot);
+            event.put("bookedByGuests", bookedByGuests);
+            event.put("timestamp", java.time.LocalDateTime.now().toString());
+
+            // Broadcast to all connected users (customers browsing checkout)
+            realtimeService.broadcastToAllUsers("table_availability", event);
+            // Also to restaurant staff
+            realtimeService.pushToRestaurant(restaurantId, "table_availability", event);
+
+            log.info("[SSE] Broadcast table availability for {} slot '{}'", restaurantId, timeSlot);
+        } catch (Exception e) {
+            log.warn("[SSE] Failed to broadcast table availability: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Broadcast updated plate count for a menu item after an order is placed.
+     */
+    private void broadcastPlateCount(String restaurantId, String menuItemId) {
+        try {
+            MenuItem item = menuItemRepository.findById(menuItemId).orElse(null);
+            if (item == null || item.getDailyPlateCount() == null) return;
+
+            LocalDate today = LocalDate.now();
+            long ordered = orderItemRepository.countPlatesOrderedForItem(
+                    menuItemId, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+            int remaining = Math.max(0, item.getDailyPlateCount() - (int) ordered);
+
+            Map<String, Object> event = new HashMap<>();
+            event.put("menuItemId", menuItemId);
+            event.put("title", item.getTitle());
+            event.put("status", remaining > 0 ? item.getStatus() : "Sold Out");
+            event.put("dailyPlateCount", item.getDailyPlateCount());
+            event.put("remainingPlates", remaining);
+            event.put("restaurantId", restaurantId);
+            event.put("timestamp", java.time.LocalDateTime.now().toString());
+
+            realtimeService.broadcastToAllUsers("menu_availability", event);
+        } catch (Exception e) {
+            log.warn("[SSE] Failed to broadcast plate count for {}: {}", menuItemId, e.getMessage());
+        }
+    }
 }

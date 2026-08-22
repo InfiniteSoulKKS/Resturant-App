@@ -41,6 +41,20 @@ public class OutboxEvent {
     @Column(name = "published_at")
     private LocalDateTime publishedAt;
 
+    /** How many times the OutboxPoller has tried (and failed) to publish this event. */
+    @Column(nullable = false)
+    @Builder.Default
+    private int retryCount = 0;
+
+    /** PENDING → FAILED or PUBLISHED. Once FAILED the poller stops retrying. */
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private String status = "PENDING";
+
+    /** Timestamp when the event was permanently abandoned (exceeded max retries). */
+    @Column(name = "failed_at")
+    private LocalDateTime failedAt;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
@@ -48,5 +62,9 @@ public class OutboxEvent {
 
     public boolean isPublished() {
         return publishedAt != null;
+    }
+
+    public boolean isFailed() {
+        return "FAILED".equals(status);
     }
 }

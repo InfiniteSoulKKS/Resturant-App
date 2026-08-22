@@ -2,8 +2,15 @@ package com.savorystay.controller;
 
 import com.savorystay.dto.CreateRestaurantRequest;
 import com.savorystay.dto.RestaurantResponse;
+import com.savorystay.dto.RestaurantSettingsResponse;
 import com.savorystay.dto.UpdateRestaurantRequest;
+import com.savorystay.entity.MenuItem;
 import com.savorystay.entity.Restaurant;
+import com.savorystay.entity.RestaurantSettings;
+import com.savorystay.repository.MenuItemRepository;
+import com.savorystay.repository.OrderItemRepository;
+import com.savorystay.repository.OrderRepository;
+import com.savorystay.repository.RestaurantSettingsRepository;
 import com.savorystay.service.RestaurantService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,9 +19,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
 @Slf4j
 @RestController
@@ -23,6 +32,10 @@ import java.util.Map;
 public class RestaurantController {
 
     private final RestaurantService restaurantService;
+    private final RestaurantSettingsRepository restaurantSettingsRepository;
+    private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final MenuItemRepository menuItemRepository;
 
     /**
      * Public: all active restaurants for customer browsing.
@@ -44,6 +57,111 @@ public class RestaurantController {
                 .filter(r -> "ACTIVE".equals(r.getStatus()))
                 .map(r -> ResponseEntity.ok(Map.of("success", true, "restaurant", RestaurantResponse.from(r))))
                 .orElseGet(() -> ResponseEntity.status(404).body(Map.of("success", false, "message", "Restaurant not found")));
+    }
+
+    /**
+     * Public: restaurant table/time-slot configuration for the checkout modal.
+     * Returns defaults if no settings row exists yet.
+     */
+    @GetMapping("/api/v1/restaurants/{id}/settings")
+    public ResponseEntity<?> getSettings(@PathVariable String id) {
+        RestaurantSettings settings = restaurantSettingsRepository.findByRestaurantId(id)
+                .orElseGet(() -> RestaurantSettings.builder()
+                        .restaurantId(id)
+                        .build());
+        return ResponseEntity.ok(Map.of("success", true, "settings", RestaurantSettingsResponse.from(settings)));
+    }
+
+    /**
+     * Public: table availability for a specific date + time slot.
+     * Returns each table type with its total count and how many are still free.
+     * Query params: ?date=YYYY-MM-DD&timeSlot=12:00 PM
+     */
+    @GetMapping("/api/v1/restaurants/{id}/table-availability")
+    public ResponseEntity<?> getTableAvailability(
+            @PathVariable String id,
+            @RequestParam String date,
+            @RequestParam String timeSlot) {
+
+        RestaurantSettings settings = restaurantSettingsRepository.findByRestaurantId(id)
+                .orElseGet(() -> RestaurantSettings.builder().restaurantId(id).build());
+
+        // Parse table config
+        List<Map<String, Object>> tableTypes = RestaurantSettingsResponse.parseTableConfig(settings.getTableConfig());
+
+        // Count existing DINE_IN orders for this date+slot
+        String datePrefix = date + " " + timeSlot;
+        List<Object[]> booked = orderRepository.countDineInByGuestsOnDate(id, datePrefix);
+        Map<Integer, Long> bookedByGuests = new HashMap<>();
+        for (Object[] row : booked) {
+            Integer guests = ((Number) row[0]).intValue();
+            Long count = ((Number) row[1]).longValue();
+            bookedByGuests.put(guests, count);
+        }
+
+        // Build response: for each table type, compute remaining = total - booked
+        List<Map<String, Object>> availability = new ArrayList<>();
+        for (Map<String, Object> tt : tableTypes) {
+            String type = (String) tt.get("type");
+            int total = tt.get("count") != null ? ((Number) tt.get("count")).intValue() : 0;
+            int guests = extractGuestsFromType(type);
+            long bookedCount = bookedByGuests.getOrDefault(guests, 0L);
+            int remaining = Math.max(0, total - (int) bookedCount);
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("type", type);
+            entry.put("total", total);
+            entry.put("booked", (int) bookedCount);
+            entry.put("remaining", remaining);
+            availability.add(entry);
+        }
+
+        return ResponseEntity.ok(Map.of("success", true, "date", date, "timeSlot", timeSlot, "tables", availability));
+    }
+
+    /**
+     * Public: daily plate availability for all menu items of a restaurant.
+     * Query param: ?date=YYYY-MM-DD (defaults to today)
+     * Returns each dish with dailyPlateCount (null=unlimited) and platesOrdered today.
+     */
+    @GetMapping("/api/v1/restaurants/{id}/plate-availability")
+    public ResponseEntity<?> getPlateAvailability(
+            @PathVariable String id,
+            @RequestParam(required = false) String date) {
+
+        LocalDate targetDate = (date != null && !date.isBlank()) ? LocalDate.parse(date) : LocalDate.now();
+        LocalDateTime dayStart = targetDate.atStartOfDay();
+        LocalDateTime dayEnd = targetDate.plusDays(1).atStartOfDay();
+
+        List<MenuItem> menuItems = menuItemRepository.findByRestaurantIdOrderByCreatedAtDesc(id);
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (MenuItem item : menuItems) {
+            Integer dailyCap = item.getDailyPlateCount();
+            long ordered = (dailyCap != null)
+                    ? orderItemRepository.countPlatesOrderedForItem(item.getId(), dayStart, dayEnd)
+                    : 0;
+            int remaining = (dailyCap != null) ? Math.max(0, dailyCap - (int) ordered) : -1; // -1 = unlimited
+            boolean available = dailyCap == null || remaining > 0;
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("menuItemId", item.getId());
+            entry.put("title", item.getTitle());
+            entry.put("dailyPlateCount", dailyCap);
+            entry.put("platesOrdered", ordered);
+            entry.put("remaining", remaining);
+            entry.put("available", available);
+            result.add(entry);
+        }
+
+        return ResponseEntity.ok(Map.of("success", true, "date", targetDate.toString(), "items", result));
+    }
+
+    /** Extract the numeric guest count from a type label like "4-Seater". */
+    private int extractGuestsFromType(String type) {
+        if (type == null) return 2;
+        String digits = type.replaceAll("[^0-9]", "");
+        return digits.isEmpty() ? 2 : Integer.parseInt(digits);
     }
 
     // ==================== SUPER ADMIN ====================

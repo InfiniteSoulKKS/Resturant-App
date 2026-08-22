@@ -27,9 +27,11 @@ interface PreBookingsDashboardProps {
   orders: Order[];
   /** Current user's role string (may be comma-separated for dual-role staff). */
   userRole?: string | null;
+  /** Called after a status update to refresh the orders list from the backend. */
+  refreshOrders?: () => void;
 }
 
-export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orders, userRole }) => {
+export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orders, userRole, refreshOrders }) => {
   // Chefs may cook (NEW -> PREPARING) and pack (PREPARING -> PACKED_READY) only.
   // Declining, completing, and handing over are manager/admin responsibilities.
   const isManagerOrAbove = canManage(userRole);
@@ -68,6 +70,8 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
         `🔔 Order ${order.orderNumber} → ${newStatus}. Multi-channel alerts dispatched (SSE, SMS, WhatsApp, Email)!`
       );
       setTimeout(() => setNotificationStatusMsg(null), 6000);
+      // Refresh orders list so the UI reflects the new status immediately
+      refreshOrders?.();
     } catch (e) {
       console.error('Order status update failed', e);
     }
@@ -237,6 +241,8 @@ export const PreBookingsDashboard: React.FC<PreBookingsDashboardProps> = ({ orde
                     <span className="text-xs text-amber-400 font-bold block">
                       {ord.orderType === 'PICKUP'
                         ? '📦 TAKEAWAY PICKUP'
+                        : ord.orderType === 'PRE_ORDER'
+                        ? '📅 PRE-ORDER — ' + (ord.timeSlot || 'Scheduled')
                         : '🍽️ DINE-IN TABLE ' + (ord.tableNumber || '#1')}
                     </span>
                   </div>

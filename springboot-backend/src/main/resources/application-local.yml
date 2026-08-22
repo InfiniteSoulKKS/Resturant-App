@@ -1,0 +1,15 @@
+# Local development profile — disables Kafka consumers and admin so the app
+# starts cleanly without a running Kafka broker (no infinite connection-retry spam).
+# Start with: ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+spring:
+  kafka:
+    consumer:
+      enabled: false
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false
+
+app:
+  kafka:
+    enabled: false

@@ -2,11 +2,17 @@ import { useEffect, useRef } from 'react';
 import { getRealtimeStreamUrl } from '../lib/apiClient';
 import { getToken } from '../lib/tokenManager';
 
+export type RealtimeEvent =
+  | { type: 'notification'; data: any }
+  | { type: 'menu_availability'; data: any }
+  | { type: 'table_availability'; data: any };
+
 /**
  * Subscribes to the backend SSE stream and invokes `onEvent` for every
- * "notification" event. EventSource auto-reconnects on network errors.
+ * event (notifications, menu availability, table availability).
+ * EventSource auto-reconnects on network errors.
  */
-export function useRealtimeNotifications(onEvent: (data: any) => void, enabled: boolean) {
+export function useRealtimeNotifications(onEvent: (event: RealtimeEvent) => void, enabled: boolean) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
@@ -20,9 +26,25 @@ export function useRealtimeNotifications(onEvent: (data: any) => void, enabled: 
 
       es.addEventListener('notification', (e) => {
         try {
-          onEventRef.current(JSON.parse((e as MessageEvent).data));
+          onEventRef.current({ type: 'notification', data: JSON.parse((e as MessageEvent).data) });
         } catch (err) {
           console.error('Failed to parse SSE notification:', err);
+        }
+      });
+
+      es.addEventListener('menu_availability', (e) => {
+        try {
+          onEventRef.current({ type: 'menu_availability', data: JSON.parse((e as MessageEvent).data) });
+        } catch (err) {
+          console.error('Failed to parse SSE menu_availability:', err);
+        }
+      });
+
+      es.addEventListener('table_availability', (e) => {
+        try {
+          onEventRef.current({ type: 'table_availability', data: JSON.parse((e as MessageEvent).data) });
+        } catch (err) {
+          console.error('Failed to parse SSE table_availability:', err);
         }
       });
 

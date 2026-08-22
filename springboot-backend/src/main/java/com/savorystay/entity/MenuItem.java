@@ -51,6 +51,15 @@ public class MenuItem {
     @Column(name = "prep_minutes")
     private Integer prepMinutes;
 
+    /**
+     * Maximum plates (servings) available per day for this dish.
+     * null = unlimited (no cap). Manager can set/change this in the menu editor.
+     * The frontend shows remaining plates and marks the dish as sold out when
+     * the daily cap is reached.
+     */
+    @Column(name = "daily_plate_count")
+    private Integer dailyPlateCount;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

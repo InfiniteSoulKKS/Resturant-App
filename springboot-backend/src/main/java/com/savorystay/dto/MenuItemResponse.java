@@ -1,11 +1,9 @@
 package com.savorystay.dto;
 
 import com.savorystay.entity.MenuItem;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/** View model for a menu item (public menu + staff menu management). */
 public record MenuItemResponse(
         String id,
         String restaurantId,
@@ -18,6 +16,7 @@ public record MenuItemResponse(
         Boolean isVeg,
         String spiceLevel,
         Integer prepMinutes,
+        Integer dailyPlateCount,
         LocalDateTime createdAt) {
 
     public static MenuItemResponse from(MenuItem m) {
@@ -33,6 +32,7 @@ public record MenuItemResponse(
                 m.getIsVeg(),
                 m.getSpiceLevel(),
                 m.getPrepMinutes(),
+                m.getDailyPlateCount(),
                 m.getCreatedAt());
     }
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CartItem, Order, PreOrderDateOption } from '../types';
-import { placeOrder, confirmOrderPayment, getPreOrderDates, checkCartAvailability } from '../lib/apiClient';
+import { placeOrder, confirmOrderPayment, getPreOrderDates, checkCartAvailability, getRestaurantSettings, getTableAvailability, type RestaurantSettings, type TableAvailability } from '../lib/apiClient';
 import type { CartAvailabilityItem, CartAvailabilityResponse } from '../lib/apiClient';
 import { getTokenUserId } from '../lib/tokenManager';
 import {
@@ -31,6 +31,8 @@ interface RealtimePaymentModalProps {
   restaurantName?: string;
   /** Date picked on the menu's pre-order calendar — preselect it when loading. */
   initialPreOrderDate?: string;
+  /** Real-time table availability update from SSE (another customer booked). */
+  tableAvailabilityUpdate?: any;
 }
 
 export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
@@ -43,6 +45,7 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
   restaurantId,
   restaurantName,
   initialPreOrderDate,
+  tableAvailabilityUpdate,
 }) => {
   const [customerName, setCustomerName] = useState('Rahul Sharma');
   const [customerPhone, setCustomerPhone] = useState('+91 98765 43210');
@@ -63,10 +66,14 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
   }, [isOpen]);
   const [orderType, setOrderType] = useState<'PICKUP' | 'DINE_IN' | 'PRE_ORDER'>('PICKUP');
   const [pickupTime, setPickupTime] = useState('30 Mins (Ready by 07:45 PM)');
+  const [dineInTimeSlot, setDineInTimeSlot] = useState('12:00 PM');
   const [tableNumber, setTableNumber] = useState(4);
   const [guests, setGuests] = useState(2);
   const [paymentGateway, setPaymentGateway] = useState<'UPI' | 'RAZORPAY' | 'CARD' | 'CASH'>('UPI');
   const [upiId, setUpiId] = useState('rahul@okaxis');
+
+  // Real-time table booking toast
+  const [tableBookedToast, setTableBookedToast] = useState<string | null>(null);
 
   // Real-time processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -89,6 +96,14 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
   const [availabilityResult, setAvailabilityResult] = useState<CartAvailabilityResponse | null>(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
 
+  // Restaurant-specific settings (tables, time slots)
+  const [restaurantSettings, setRestaurantSettings] = useState<RestaurantSettings | null>(null);
+
+  // Table availability for DINE_IN
+  const [tableAvailability, setTableAvailability] = useState<TableAvailability[]>([]);
+  const [selectedTableType, setSelectedTableType] = useState<string>('');
+  const [tableAvailabilityLoading, setTableAvailabilityLoading] = useState(false);
+
   // Check cart availability when modal opens (runs for all order types).
   useEffect(() => {
     if (!isOpen || !restaurantId || cart.length === 0) return;
@@ -104,7 +119,6 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
       })
       .catch((err) => {
         console.warn('Availability check failed:', err);
-        // Don't block checkout if the check itself fails — backend will validate on submit.
         if (!cancelled) setAvailabilityResult({ allAvailable: true, unavailableItems: [] });
       })
       .finally(() => {
@@ -112,6 +126,76 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
       });
     return () => { cancelled = true; };
   }, [isOpen, restaurantId, cart]);
+
+  // Fetch restaurant settings (tables, time slots) when modal opens
+  useEffect(() => {
+    if (!isOpen || !restaurantId) return;
+    let cancelled = false;
+    getRestaurantSettings(restaurantId)
+      .then((s) => { if (!cancelled) setRestaurantSettings(s); })
+      .catch(() => { /* use defaults */ });
+    return () => { cancelled = true; };
+  }, [isOpen, restaurantId]);
+
+  // Fetch table availability when DINE_IN is selected or time slot changes
+  useEffect(() => {
+    if (!isOpen || orderType !== 'DINE_IN' || !restaurantId) {
+      setTableAvailability([]);
+      setSelectedTableType('');
+      return;
+    }
+    let cancelled = false;
+    setTableAvailabilityLoading(true);
+    const today = new Date().toISOString().split('T')[0];
+    getTableAvailability(restaurantId, today, dineInTimeSlot)
+      .then((tables) => {
+        if (!cancelled) {
+          setTableAvailability(tables);
+          // Auto-select the first available table type
+          const firstAvailable = tables.find((t) => t.remaining > 0);
+          if (firstAvailable) setSelectedTableType(firstAvailable.type);
+        }
+      })
+      .catch(() => { if (!cancelled) setTableAvailability([]); })
+      .finally(() => { if (!cancelled) setTableAvailabilityLoading(false); });
+    return () => { cancelled = true; };
+  }, [isOpen, orderType, restaurantId, dineInTimeSlot]);
+
+  // React to real-time table availability updates from SSE (another customer booked)
+  useEffect(() => {
+    if (!tableAvailabilityUpdate || !isOpen || orderType !== 'DINE_IN') return;
+    if (tableAvailabilityUpdate.restaurantId !== restaurantId) return;
+    // Only apply if the SSE event is for the same time slot we're currently viewing
+    if (tableAvailabilityUpdate.timeSlot && tableAvailabilityUpdate.timeSlot !== dineInTimeSlot) return;
+
+    // Detect which table types just became full or lost a table
+    const bookedByGuests = tableAvailabilityUpdate.bookedByGuests || {};
+    setTableAvailability((prev) => {
+      if (!prev || prev.length === 0) return prev;
+      // Check for changes to show toast
+      let newlyFull: string[] = [];
+      for (const tt of prev) {
+        const seats = parseInt(tt.type) || 2;
+        const booked = bookedByGuests[seats] || 0;
+        const newRemaining = Math.max(0, tt.total - booked);
+        if (tt.remaining > 0 && newRemaining === 0) {
+          newlyFull.push(tt.type);
+        } else if (tt.remaining > newRemaining && newRemaining > 0) {
+          setTableBookedToast(`A ${tt.type} was just booked — ${newRemaining} left for ${dineInTimeSlot}`);
+          setTimeout(() => setTableBookedToast(null), 4000);
+        }
+      }
+      if (newlyFull.length > 0) {
+        setTableBookedToast(`${newlyFull.join(' & ')} just filled up for ${dineInTimeSlot}!`);
+        setTimeout(() => setTableBookedToast(null), 4000);
+      }
+      return prev.map((tt) => {
+        const seats = parseInt(tt.type) || 2;
+        const booked = bookedByGuests[seats] || 0;
+        return { ...tt, booked, remaining: Math.max(0, tt.total - booked) };
+      });
+    });
+  }, [tableAvailabilityUpdate, isOpen, orderType, restaurantId, dineInTimeSlot]);
 
   useEffect(() => {
     if (!isOpen || orderType !== 'PRE_ORDER') return;
@@ -201,6 +285,10 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
     setOrderType(t);
     if (t === 'PRE_ORDER') setPickupTime('10:00 AM');
     else if (t === 'PICKUP') setPickupTime('30 Mins (Ready by 07:45 PM)');
+    else if (t === 'DINE_IN') {
+      // Reset DINE_IN time slot to first available
+      setDineInTimeSlot(restaurantSettings?.dineinTimeSlots?.[0] || '12:00 PM');
+    }
   };
 
   const effectivePreOrderDate = selectedPreOrderDate
@@ -229,6 +317,8 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
         guests: orderType === 'DINE_IN' ? guests : undefined,
         timeSlot: orderType === 'PRE_ORDER'
           ? `${selectedDateLabel() || effectivePreOrderDate} ${pickupTime}`
+          : orderType === 'DINE_IN'
+          ? dineInTimeSlot
           : (pickupTime || '30 Mins'),
         pickupTime: orderType === 'PRE_ORDER'
           ? isoDateTime(effectivePreOrderDate, pickupTime)
@@ -311,6 +401,16 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
 
         {/* Content */}
         <div className="p-6">
+          {/* Real-time table booking toast */}
+          {tableBookedToast && (
+            <div className="mb-4 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold animate-slide-in">
+              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              <span>{tableBookedToast}</span>
+            </div>
+          )}
+
           {paymentSuccessData ? (
             /* Success View */
             <div className="text-center py-4 space-y-4">
@@ -550,32 +650,102 @@ export const RealtimePaymentModal: React.FC<RealtimePaymentModalProps> = ({
                     onChange={(e) => setPickupTime(e.target.value)}
                     className="w-full py-2 px-3 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-100 focus:outline-none focus:border-amber-500"
                   >
-                    <option value="15 Mins (Ready by 07:30 PM)">15 Mins (Ready by 07:30 PM)</option>
-                    <option value="30 Mins (Ready by 07:45 PM)">30 Mins (Ready by 07:45 PM)</option>
-                    <option value="45 Mins (Ready by 08:00 PM)">45 Mins (Ready by 08:00 PM)</option>
-                    <option value="1 Hour (Ready by 08:15 PM)">1 Hour (Ready by 08:15 PM)</option>
-                    <option value="Scheduled for Tomorrow 12:30 PM">Scheduled for Tomorrow 12:30 PM</option>
+                    {(restaurantSettings?.pickupTimeSlots?.length
+                      ? restaurantSettings.pickupTimeSlots
+                      : ['15 Mins', '30 Mins', '45 Mins', '1 Hour', '1.5 Hours']
+                    ).map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                    Select Table Type
+                  </label>
+                  {tableAvailabilityLoading ? (
+                    <div className="text-[11px] text-stone-500 py-2">Checking table availability...</div>
+                  ) : tableAvailability.length === 0 ? (
+                    <div className="text-[11px] text-stone-500 py-2">No table configuration found. Contact the restaurant.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {tableAvailability.map((tt) => {
+                        const isSelected = selectedTableType === tt.type;
+                        const isFull = tt.remaining === 0;
+                        const seats = parseInt(tt.type) || 2;
+                        return (
+                          <button
+                            key={tt.type}
+                            type="button"
+                            disabled={isFull}
+                            onClick={() => {
+                              setSelectedTableType(tt.type);
+                              setGuests(seats);
+                              setTableNumber(seats); // use seats as table category
+                            }}
+                            className={`relative p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                              isFull
+                                ? 'bg-stone-950 border-stone-800 opacity-50 cursor-not-allowed'
+                                : isSelected
+                                  ? 'bg-amber-500/10 border-amber-500/50 shadow-lg shadow-amber-500/10'
+                                  : 'bg-stone-950 border-stone-800 hover:border-stone-600'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-xs font-bold ${isSelected ? 'text-amber-400' : 'text-stone-200'}`}>
+                                {tt.type}
+                              </span>
+                              {isFull && (
+                                <span className="text-[9px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">
+                                  FULL
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-stone-500">
+                                {tt.remaining} of {tt.total} free
+                              </span>
+                              <div className="flex gap-0.5">
+                                {Array.from({ length: tt.total }, (_, i) => (
+                                  <div
+                                    key={i}
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      i < tt.booked ? 'bg-rose-500' : 'bg-emerald-500/60'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                            {/* Seats icon row */}
+                            <div className="flex gap-1 mt-2">
+                              {Array.from({ length: Math.min(seats, 8) }, (_, i) => (
+                                <span key={i} className="text-[10px]">🪑</span>
+                              ))}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* Time slot selection for DINE_IN */}
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1">Table #</label>
-                    <input
-                      type="number"
-                      value={tableNumber}
-                      onChange={(e) => setTableNumber(Number(e.target.value))}
-                      className="w-full py-2 px-3 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-100"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1">Guests</label>
-                    <input
-                      type="number"
-                      value={guests}
-                      onChange={(e) => setGuests(Number(e.target.value))}
-                      className="w-full py-2 px-3 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-100"
-                    />
+                    <label className="block text-xs font-semibold text-stone-300 mb-1">
+                      Preferred Time Slot
+                    </label>
+                    <select
+                      value={dineInTimeSlot}
+                      onChange={(e) => setDineInTimeSlot(e.target.value)}
+                      className="w-full py-2 px-3 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-100 focus:outline-none focus:border-amber-500"
+                    >
+                      {restaurantSettings?.dineinTimeSlots?.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      )) || [
+                        '12:00 PM', '12:30 PM', '1:00 PM', '1:30 PM', '2:00 PM',
+                        '7:00 PM', '7:30 PM', '8:00 PM', '8:30 PM', '9:00 PM', '9:30 PM'
+                      ].map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               )}

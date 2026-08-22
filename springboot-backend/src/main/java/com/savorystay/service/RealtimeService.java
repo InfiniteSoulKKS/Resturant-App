@@ -57,6 +57,11 @@ public class RealtimeService {
         return send(emitter, eventName, payload, restaurantEmitters, restaurantId);
     }
 
+    /** Broadcast an event to ALL connected users (e.g. menu availability changes). */
+    public void broadcastToAllUsers(String eventName, Object payload) {
+        userEmitters.forEach((key, emitter) -> send(emitter, eventName, payload, userEmitters, key));
+    }
+
     private boolean send(SseEmitter emitter, String eventName, Object payload,
                          Map<String, SseEmitter> registry, String key) {
         try {

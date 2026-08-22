@@ -8,6 +8,7 @@ import com.savorystay.entity.PriceRule;
 import com.savorystay.repository.IngredientRepository;
 import com.savorystay.repository.MenuItemIngredientRepository;
 import com.savorystay.repository.MenuItemRepository;
+import com.savorystay.repository.OrderItemRepository;
 import com.savorystay.repository.PriceRuleRepository;
 import com.savorystay.repository.RestaurantRepository;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,8 @@ public class MenuService {
     private final PriceRuleRepository priceRuleRepository;
     private final RestaurantRepository restaurantRepository;
     private final IngredientRepository ingredientMasterRepository;
+    private final RealtimeService realtimeService;
+    private final OrderItemRepository orderItemRepository;
 
     /** True when the restaurant exists and is not suspended/offline. */
     public boolean isRestaurantActive(String restaurantId) {
@@ -112,6 +115,9 @@ public class MenuService {
         MenuItem existing = menuItemRepository.findByIdAndRestaurantId(id, restaurantId)
                 .orElseThrow(() -> new IllegalArgumentException("Menu item not found in this restaurant"));
 
+        // Capture old status BEFORE mutation so we can detect changes
+        String oldStatus = existing.getStatus();
+
         if (updates.getTitle() != null) existing.setTitle(updates.getTitle());
         if (updates.getDescription() != null) existing.setDescription(updates.getDescription());
         if (updates.getPrice() != null) existing.setPrice(updates.getPrice());
@@ -123,6 +129,11 @@ public class MenuService {
         if (updates.getPrepMinutes() != null) existing.setPrepMinutes(updates.getPrepMinutes());
 
         MenuItem saved = menuItemRepository.save(existing);
+
+        // Broadcast if status changed — compare new status against OLD status
+        if (updates.getStatus() != null && !updates.getStatus().equals(oldStatus)) {
+            broadcastAvailability(restaurantId, id, saved.getTitle(), saved.getStatus(), saved.getDailyPlateCount());
+        }
 
         if (ingredients != null) {
             ingredientRepository.deleteByMenuItemId(id);
@@ -144,7 +155,44 @@ public class MenuService {
         MenuItem item = menuItemRepository.findByIdAndRestaurantId(id, restaurantId)
                 .orElseThrow(() -> new IllegalArgumentException("Menu item not found in this restaurant"));
         item.setStatus(newStatus);
-        return menuItemRepository.save(item);
+        MenuItem saved = menuItemRepository.save(item);
+
+        // Broadcast availability change to all connected customers in real time via SSE
+        broadcastAvailability(restaurantId, id, saved.getTitle(), newStatus, saved.getDailyPlateCount());
+
+        return saved;
+    }
+
+    /**
+     * Broadcast a menu availability change to all connected users via SSE.
+     * The frontend listener updates the cart and shows a toast in real time.
+     */
+    private void broadcastAvailability(String restaurantId, String menuItemId,
+                                         String title, String status, Integer dailyPlateCount) {
+        // Compute remaining plates for today if there's a daily cap
+        Integer remainingPlates = null;
+        if (dailyPlateCount != null) {
+            java.time.LocalDate today = java.time.LocalDate.now();
+            long ordered = orderItemRepository.countPlatesOrderedForItem(
+                    menuItemId, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+            remainingPlates = Math.max(0, dailyPlateCount - (int) ordered);
+        }
+
+        Map<String, Object> event = new HashMap<>();
+        event.put("menuItemId", menuItemId);
+        event.put("title", title);
+        event.put("status", status);
+        event.put("dailyPlateCount", dailyPlateCount);
+        event.put("remainingPlates", remainingPlates);
+        event.put("restaurantId", restaurantId);
+        event.put("timestamp", LocalDateTime.now().toString());
+
+        // Push to all connected users (customers browsing the menu)
+        realtimeService.broadcastToAllUsers("menu_availability", event);
+        // Also push to restaurant staff channel
+        realtimeService.pushToRestaurant(restaurantId, "menu_availability", event);
+
+        log.info("[SSE] Broadcast menu availability: {} → {} (restaurant={})", title, status, restaurantId);
     }
 
     public List<MenuItemIngredient> ingredientsFor(String menuItemId, String restaurantId) {

@@ -34,4 +34,18 @@ public interface OrderRepository extends JpaRepository<Order, String> {
                                         @Param("dateStr") String dateStr,
                                         @Param("from") LocalDateTime from,
                                         @Param("to") LocalDateTime to);
+
+    /**
+     * Count active DINE_IN orders grouped by guest count for a restaurant on a
+     * given date. Used to determine table availability per seating type.
+     * Returns rows of [guests, count].
+     */
+    @Query(value = "SELECT o.guests AS guests, COUNT(*) AS cnt FROM orders o " +
+           "WHERE o.restaurant_id = :restaurantId " +
+           "AND o.order_type = 'DINE_IN' " +
+           "AND o.order_status NOT IN ('DECLINED', 'CANCELLED', 'COMPLETED') " +
+           "AND o.time_slot LIKE CONCAT(:datePrefix, '%') " +
+           "GROUP BY o.guests", nativeQuery = true)
+    List<Object[]> countDineInByGuestsOnDate(@Param("restaurantId") String restaurantId,
+                                              @Param("datePrefix") String datePrefix);
 }

@@ -6,6 +6,7 @@ import com.savorystay.config.KafkaTopicConfig;
 import com.savorystay.entity.OutboxEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
@@ -33,11 +34,18 @@ public class KafkaEventPublisher {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
 
+    @Value("${app.kafka.enabled:true}")
+    private boolean kafkaEnabled;
+
     /** Wait for the Kafka broker acknowledgement (broker down → quick failure, not a hung thread). */
     private static final long SEND_TIMEOUT_SECONDS = 5;
 
     /** Publish an outbox event to its topic. Throws on failure so the caller can roll back. */
     public void publish(String topic, OutboxEvent event) {
+        if (!kafkaEnabled) {
+            log.debug("[KAFKA] Kafka disabled — skipping publish of {} to {}", event.getEventType(), topic);
+            return;
+        }
         try {
             Map<String, Object> payload = event.getPayload() != null
                     ? objectMapper.readValue(event.getPayload(), new TypeReference<>() {})

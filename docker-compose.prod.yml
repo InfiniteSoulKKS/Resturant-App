@@ -97,6 +97,9 @@ services:
       # Kafka
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_CONSUMER_GROUP: savorystay-notifications
+      APP_KAFKA_ENABLED: "true"
+      # Override default local profile — Kafka is available in the docker stack
+      SPRING_PROFILES_ACTIVE: docker
       # JWT
       JWT_SECRET: ${JWT_SECRET:?Missing JWT_SECRET - generate with openssl rand -hex 32}
       # Mail (Gmail SMTP or ElasticEmail)

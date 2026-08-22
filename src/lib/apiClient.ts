@@ -304,7 +304,12 @@ export function parseOrder(o: any): Order {
     ...o,
     totalAmount: Number(o.totalAmount),
     timestamp: o.createdAt ? new Date(o.createdAt).getTime() : Date.now(),
-    items: o.items || [],
+    items: (o.items || []).map((item: any) => ({
+      ...item,
+      // Backend DTO sends "unitPrice" — map to "price" so frontend OrderItemSummary works
+      price: item.price ?? Number(item.unitPrice ?? 0),
+      quantity: Number(item.quantity),
+    })),
   };
 }
 
@@ -332,6 +337,58 @@ export async function getPublicMenu(restaurantId: string): Promise<MenuItem[]> {
   const res = await fetch(`${API_BASE_URL}/api/v1/restaurants/${restaurantId}/menu`);
   const data = await readJson<{ success: boolean; menuItems: any[] }>(res);
   return (data.menuItems || []).map(parseMenuItem);
+}
+
+// ==================== RESTAURANT SETTINGS (tables & time slots) ====================
+
+export interface RestaurantSettings {
+  restaurantId: string;
+  tableConfig: string; // JSON array of {type, count}
+  tableTypes: { type: string; count: number }[];
+  totalTables: number;
+  pickupTimeSlots: string[];
+  dineinTimeSlots: string[];
+}
+
+export async function getRestaurantSettings(restaurantId: string): Promise<RestaurantSettings> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/restaurants/${restaurantId}/settings`);
+  const data = await readJson<{ success: boolean; settings: RestaurantSettings }>(res);
+  return data.settings;
+}
+
+export interface TableAvailability {
+  type: string;
+  total: number;
+  booked: number;
+  remaining: number;
+}
+
+export async function getTableAvailability(
+  restaurantId: string, date: string, timeSlot: string
+): Promise<TableAvailability[]> {
+  const res = await fetch(
+    `${API_BASE_URL}/api/v1/restaurants/${restaurantId}/table-availability?date=${date}&timeSlot=${encodeURIComponent(timeSlot)}`
+  );
+  const data = await readJson<{ success: boolean; tables: TableAvailability[] }>(res);
+  return data.tables;
+}
+
+export interface PlateAvailabilityItem {
+  menuItemId: string;
+  title: string;
+  dailyPlateCount: number | null;
+  platesOrdered: number;
+  remaining: number; // -1 = unlimited
+  available: boolean;
+}
+
+export async function getPlateAvailability(
+  restaurantId: string, date?: string
+): Promise<PlateAvailabilityItem[]> {
+  const qs = date ? `?date=${date}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/v1/restaurants/${restaurantId}/plate-availability${qs}`);
+  const data = await readJson<{ success: boolean; items: PlateAvailabilityItem[] }>(res);
+  return data.items;
 }
 
 // ==================== SUPER ADMIN ====================

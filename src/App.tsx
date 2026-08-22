@@ -8,19 +8,21 @@ import { PreBookingsDashboard } from './components/PreBookingsDashboard';
 import { ChefPrepSummary } from './components/ChefPrepSummary';
 import { BackendInspectorModal } from './components/BackendInspectorModal';
 import { RealtimePaymentModal } from './components/RealtimePaymentModal';
+import { AvailabilityWarningModal } from './components/AvailabilityWarningModal';
 import { AuthModal } from './components/AuthModal';
 import { SuperAdminDashboard } from './components/SuperAdminDashboard';
 import { StaffManagement } from './components/StaffManagement';
 import { CustomerMembershipManager } from './components/CustomerMembershipManager';
 import { IngredientPlanning } from './components/IngredientPlanning';
 import { ManagerDashboard } from './components/ManagerDashboard';
+import { AdminDashboard } from './components/AdminDashboard';
 import { PreOrderSettings } from './components/PreOrderSettings';
 import { OrderTracking } from './components/OrderTracking';
 import { NotificationsBell } from './components/NotificationsBell';
 import { RestaurantPicker } from './components/RestaurantPicker';
 import { RestaurantSelector } from './components/RestaurantSelector';
 import { getToken, storeToken as storeAuthToken, removeToken, getTokenRole, getTokenRestaurantId, getTokenUserId, getTokenExpiryTime } from './lib/tokenManager';
-import { listRestaurants, getPublicMenu, getRestaurantOrders, getMyOrders, getCurrentUser, listCustomerMembers } from './lib/apiClient';
+import { listRestaurants, getPublicMenu, getRestaurantOrders, getMyOrders, getCurrentUser, listCustomerMembers, getMyRestaurants, selectRestaurant } from './lib/apiClient';
 import { useRealtimeNotifications } from './hooks/useRealtimeNotifications';
 import { INITIAL_MENU_ITEMS, INITIAL_ORDERS, INITIAL_PREP_ITEMS } from './data/initialData';
 import { hasRole, canManage } from './lib/roles';
@@ -33,6 +35,18 @@ export default function App() {
   // Set when an unauthenticated user tries to check out — resume to the payment
   // modal automatically once they sign in.
   const [pendingCheckout, setPendingCheckout] = useState(false);
+  const [showAvailabilityWarning, setShowAvailabilityWarning] = useState(false);
+  const [unavailableCartItems, setUnavailableCartItems] = useState<CartItem[]>([]);
+  const [availableCartItems, setAvailableCartItems] = useState<CartItem[]>([]);
+
+  // Real-time availability toast
+  const [availabilityToast, setAvailabilityToast] = useState<{ title: string; message: string; type: 'info' | 'warning' } | null>(null);
+
+  // Real-time plate count updates from SSE — maps menuItemId → remaining plates
+  const [plateUpdates, setPlateUpdates] = useState<Map<string, number>>(new Map());
+
+  // Real-time table availability updates from SSE
+  const [tableAvailabilityUpdate, setTableAvailabilityUpdate] = useState<any>(null);
 
   // Auth state
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -61,26 +75,89 @@ export default function App() {
   // Customer member count for the badge on the Members tab
   const [memberCount, setMemberCount] = useState<number>(0);
 
-  // Realtime SSE: handle incoming notifications
-  const handleRealtimeEvent = useCallback((data: any) => {
-    if (data?.id) {
-      setLiveNotifications((prev) => [...prev, data as Notification]);
-    }
-    // If the event contains order status update, refresh orders
-    if (data?.type === 'ORDER_STATUS' || data?.type === 'ORDER_READY' || data?.type === 'NEW_ORDER') {
-      refreshOrders();
-      // Tell the customer's order-tracking view to re-fetch so status changes
-      // appear live instead of requiring a manual reload.
-      orderTrackingRefreshRef.current?.();
-    }
-  }, []);
-
-  useRealtimeNotifications(handleRealtimeEvent, !!jwtToken);
-
+  // Realtime SSE: handle incoming notifications and menu availability changes
   // OrderTracking registers a refresh callback here; realtime order events
   // invoke it so the customer's order list updates live (the SSE payload only
   // carries orderId/type, so the list is re-fetched rather than patched).
   const orderTrackingRefreshRef = useRef<(() => void) | null>(null);
+
+  // Fetch role-scoped orders on mount and when user changes.
+  // Super admins have no restaurant in their JWT, so fall back to the
+  // restaurant they picked in the header selector.
+  const refreshOrders = useCallback(() => {
+    const role = getTokenRole();
+    if (!role || role === 'ROLE_CUSTOMER') {
+      getMyOrders()
+        .then(setOrders)
+        .catch(() => {});
+    } else {
+      const rid = getTokenRestaurantId() || currentRestaurantId;
+      if (rid) {
+        getRestaurantOrders(rid)
+          .then(setOrders)
+          .catch(() => {});
+      }
+    }
+  }, [currentRestaurantId]);
+
+  // Realtime SSE: handle incoming notifications and menu availability changes
+  // Uses refs for refreshOrders/orderTrackingRefreshRef to avoid stale closures
+  // while keeping the callback stable for the SSE hook.
+  const refreshOrdersRef = useRef(refreshOrders);
+  refreshOrdersRef.current = refreshOrders;
+
+  const handleRealtimeEvent = useCallback((event: { type: string; data: any }) => {
+    const { type, data } = event;
+
+    if (type === 'notification' && data?.id) {
+      setLiveNotifications((prev) => [...prev, data as Notification]);
+      // If the event contains order status update, refresh orders
+      if (data?.type === 'ORDER_STATUS' || data?.type === 'ORDER_READY' || data?.type === 'NEW_ORDER') {
+        refreshOrdersRef.current();
+        orderTrackingRefreshRef.current?.();
+      }
+    }
+
+    if (type === 'menu_availability' && data) {
+      // Update the menu items state to reflect the new status and plate count
+      if (data.menuItemId && data.status) {
+        setMenuItems((prev) =>
+          prev.map((item) =>
+            item.id === data.menuItemId
+              ? { ...item, status: data.status, dailyPlateCount: data.dailyPlateCount ?? item.dailyPlateCount }
+              : item
+          )
+        );
+
+        // Update real-time plate counts for the menu view
+        if (data.remainingPlates !== undefined && data.remainingPlates !== null) {
+          setPlateUpdates((prev) => {
+            const next = new Map(prev);
+            next.set(data.menuItemId, data.remainingPlates);
+            return next;
+          });
+        }
+
+        // Show a toast notification
+        const isSoldOut = data.status === 'Sold Out';
+        setAvailabilityToast({
+          title: data.title || 'Menu Updated',
+          message: isSoldOut
+            ? `${data.title} is now sold out`
+            : `${data.title} is now available again`,
+          type: isSoldOut ? 'warning' : 'info',
+        });
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => setAvailabilityToast(null), 5000);
+      }
+    }
+
+    if (type === 'table_availability' && data) {
+      setTableAvailabilityUpdate(data);
+    }
+  }, []);
+
+  useRealtimeNotifications(handleRealtimeEvent, !!jwtToken);
 
   // Fetch restaurants on mount
   useEffect(() => {
@@ -119,25 +196,6 @@ export default function App() {
     }
   }, [currentRestaurantId, jwtToken]);
 
-  // Fetch role-scoped orders on mount and when user changes.
-  // Super admins have no restaurant in their JWT, so fall back to the
-  // restaurant they picked in the header selector.
-  const refreshOrders = useCallback(() => {
-    const role = getTokenRole();
-    if (!role || role === 'ROLE_CUSTOMER') {
-      getMyOrders()
-        .then(setOrders)
-        .catch(() => {});
-    } else {
-      const rid = getTokenRestaurantId() || currentRestaurantId;
-      if (rid) {
-        getRestaurantOrders(rid)
-          .then(setOrders)
-          .catch(() => {});
-      }
-    }
-  }, [currentRestaurantId]);
-
   useEffect(() => {
     if (jwtToken) {
       refreshOrders();
@@ -158,6 +216,12 @@ export default function App() {
           setJwtToken(token);
           setUserRole(payload.role);
           setUserRestaurantId(payload.restaurantId);
+          // Default role-specific landing tab on session restore
+          if (payload.role === 'ROLE_SUPER_ADMIN') {
+            setActiveTab('super_admin');
+          } else if (payload.role === 'ROLE_ADMIN' && payload.restaurantId) {
+            setActiveTab('admin_dashboard');
+          }
           getCurrentUser()
             .then((user) => {
               // Ignore a stale profile if the token changed mid-flight (e.g. the
@@ -190,16 +254,45 @@ export default function App() {
     if (user.role !== 'ROLE_CUSTOMER' && user.restaurantId) {
       setCurrentRestaurantId(user.restaurantId);
     }
+    // Default admin to their admin dashboard
+    if (user.role === 'ROLE_ADMIN' && user.restaurantId) {
+      setActiveTab('admin_dashboard');
+    }
+    // Default super admin to the platform overview
+    if (user.role === 'ROLE_SUPER_ADMIN') {
+      setActiveTab('super_admin');
+    }
     refreshOrders();
     // If they were mid-checkout, drop them straight into payment now that they're in.
     if (pendingCheckout) {
       setPendingCheckout(false);
       setIsPaymentModalOpen(true);
     }
-    // For customers, show the restaurant selector if they have memberships
-    // (the selector handles the case of zero memberships by showing available restaurants to join)
+    // For customers, show the restaurant selector only if they have multiple
+    // memberships or zero memberships. Single-membership users are auto-selected.
     if (user.role === 'ROLE_CUSTOMER') {
-      setIsRestaurantSelectorOpen(true);
+      getMyRestaurants()
+        .then((memberships) => {
+          if (memberships.length !== 1) {
+            setIsRestaurantSelectorOpen(true);
+          } else if (memberships.length === 1 && memberships[0].restaurantId) {
+            // Auto-select the single restaurant
+            selectRestaurant(memberships[0].restaurantId)
+              .then((resp) => {
+                if (resp?.token) {
+                  storeAuthToken(resp.token);
+                  setJwtToken(resp.token);
+                  setUserRestaurantId(memberships[0].restaurantId);
+                  setCurrentRestaurantId(memberships[0].restaurantId);
+                }
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {
+          // If memberships can't be loaded, show the selector anyway
+          setIsRestaurantSelectorOpen(true);
+        });
     }
   };
 
@@ -277,8 +370,7 @@ export default function App() {
       const menuItem = menuItems.find(m => m.id === ri.menuItemId);
       if (menuItem && menuItem.status === 'Available') {
         newCart.push({ menuItem, quantity: ri.quantity });
-      } else {
-        // Item not found or sold out — skip silently (checkout will validate)
+      } else {            // Item not found or sold out — skip silently (checkout will validate)
         // Use a synthetic MenuItem with the old price as fallback
         newCart.push({
           menuItem: {
@@ -287,7 +379,7 @@ export default function App() {
             price: ri.price,
             restaurantId,
             status: 'Available',
-            category: '',
+            category: 'Mains',
             isVeg: true,
             spiceLevel: 'Medium',
             description: '',
@@ -331,7 +423,61 @@ export default function App() {
       setIsAuthModalOpen(true);
       return;
     }
+
+    // Check cart items against current menu availability before proceeding
+    const unavailable: CartItem[] = [];
+    const available: CartItem[] = [];
+    cart.forEach((ci) => {
+      const current = menuItems.find((m) => m.id === ci.menuItem.id);
+      if (current && current.status === 'Sold Out') {
+        unavailable.push(ci);
+      } else {
+        available.push(ci);
+      }
+    });
+
+    if (unavailable.length > 0) {
+      setUnavailableCartItems(unavailable);
+      setAvailableCartItems(available);
+      setShowAvailabilityWarning(true);
+      return;
+    }
+
     setIsPaymentModalOpen(true);
+  };
+
+  /** Remove a single unavailable item from the warning modal. */
+  const handleRemoveUnavailableItem = (menuItemId: string) => {
+    removeFromCart(menuItemId);
+    setUnavailableCartItems((prev) => prev.filter((ci) => ci.menuItem.id !== menuItemId));
+    setAvailableCartItems((prev) => {
+      const found = cart.find((ci) => ci.menuItem.id === menuItemId);
+      return found ? [...prev, found] : prev;
+    });
+  };
+
+  /** Remove all unavailable items and proceed with available ones. */
+  const handleRemoveAllUnavailable = () => {
+    unavailableCartItems.forEach((ci) => removeFromCart(ci.menuItem.id));
+    setUnavailableCartItems([]);
+    // All remaining items in the cart are available — proceed
+    setShowAvailabilityWarning(false);
+    setIsPaymentModalOpen(true);
+  };
+
+  /** Proceed with only the available items (keep them, skip unavailable). */
+  const handleProceedWithAvailable = () => {
+    unavailableCartItems.forEach((ci) => removeFromCart(ci.menuItem.id));
+    setUnavailableCartItems([]);
+    setShowAvailabilityWarning(false);
+    setIsPaymentModalOpen(true);
+  };
+
+  /** Go back to the menu to adjust the cart. */
+  const handleGoBackToMenu = () => {
+    setShowAvailabilityWarning(false);
+    setUnavailableCartItems([]);
+    setAvailableCartItems([]);
   };
 
   const handlePaymentSuccess = (newOrder: Order) => {
@@ -396,6 +542,7 @@ export default function App() {
             onOpenAuth={() => setIsAuthModalOpen(true)}
             restaurantId={currentRestaurantId || undefined}
             onPreOrderDateChange={setPreOrderDate}
+            plateUpdates={plateUpdates}
           />
         )}
 
@@ -412,7 +559,7 @@ export default function App() {
               onReorder={handleReorder}
             />
           ) : (
-            <PreBookingsDashboard orders={orders} userRole={userRole} />
+            <PreBookingsDashboard orders={orders} userRole={userRole} refreshOrders={refreshOrders} />
           )
         )}
 
@@ -422,6 +569,15 @@ export default function App() {
           ) : (
             <ChefPrepSummary prepItems={INITIAL_PREP_ITEMS} />
           )
+        )}
+
+        {activeTab === 'admin_dashboard' && (
+          <AdminDashboard
+            restaurantId={currentRestaurantId}
+            restaurantName={restaurants.find((r) => r.id === currentRestaurantId)?.name}
+            restaurant={restaurants.find((r) => r.id === currentRestaurantId)}
+            onNavigate={(tab) => setActiveTab(tab as ViewTab)}
+          />
         )}
 
         {activeTab === 'dashboard' && (
@@ -500,6 +656,17 @@ export default function App() {
         username={currentUser?.username || ''}
       />
 
+      {/* Availability Warning Modal */}
+      <AvailabilityWarningModal
+        isOpen={showAvailabilityWarning}
+        unavailableItems={unavailableCartItems}
+        availableItems={availableCartItems}
+        onRemoveUnavailable={handleRemoveUnavailableItem}
+        onRemoveAllUnavailable={handleRemoveAllUnavailable}
+        onProceedWithAvailable={handleProceedWithAvailable}
+        onGoBackToMenu={handleGoBackToMenu}
+      />
+
       {/* Payment Modal */}
       <RealtimePaymentModal
         isOpen={isPaymentModalOpen}
@@ -511,6 +678,7 @@ export default function App() {
         restaurantId={currentRestaurantId || undefined}
         restaurantName={restaurants.find((r) => r.id === currentRestaurantId)?.name}
         initialPreOrderDate={preOrderDate}
+        tableAvailabilityUpdate={tableAvailabilityUpdate}
       />
 
       {/* Bottom Navigation */}
@@ -520,6 +688,43 @@ export default function App() {
         userRole={userRole}
         memberCount={memberCount}
       />
+
+      {/* Real-time availability toast */}
+      {availabilityToast && (
+        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+          <div
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl backdrop-blur-xl max-w-sm ${
+              availabilityToast.type === 'warning'
+                ? 'bg-rose-950/90 border-rose-800/50 text-rose-200'
+                : 'bg-emerald-950/90 border-emerald-800/50 text-emerald-200'
+            }`}
+          >
+            <div className="shrink-0">
+              {availabilityToast.type === 'warning' ? (
+                <svg className="w-5 h-5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold truncate">{availabilityToast.title}</p>
+              <p className="text-[10px] opacity-80 truncate">{availabilityToast.message}</p>
+            </div>
+            <button
+              onClick={() => setAvailabilityToast(null)}
+              className="shrink-0 opacity-60 hover:opacity-100 cursor-pointer"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

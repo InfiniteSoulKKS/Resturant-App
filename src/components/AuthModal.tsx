@@ -74,6 +74,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isOtpLoading, setIsOtpLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  // Demo OTP code — displayed prominently so users never miss it
+  const [demoOtpCode, setDemoOtpCode] = useState<string | null>(null);
 
   // Debounced pre-registration availability check: warn the user as they type
   // if the username/email/phone is already taken, BEFORE they spend an OTP.
@@ -129,6 +131,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setIsOtpLoading(false);
       setErrorMessage(null);
       setSuccessMessage(null);
+      setDemoOtpCode(null);
       // Reset to login mode
       setAuthMode('LOGIN');
       setLoginMethod('OTP');
@@ -180,7 +183,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (response.demoOtp) {
         // Demo mode: backend returned the code because no SMS/email provider is configured.
         setLoginOtpCode(response.demoOtp);
-        setSuccessMessage(`🧪 Demo mode — your ${loginOtpChannel} OTP is ${response.demoOtp} (autofilled)`);
+        setDemoOtpCode(response.demoOtp);
+        setSuccessMessage(`🧪 Demo mode — OTP auto-filled below!`);
       } else {
         setSuccessMessage(`✅ OTP sent via ${loginOtpChannel}! Check your ${loginOtpChannel === 'EMAIL' ? 'email' : 'phone'}.`);
       }
@@ -290,7 +294,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (response.demoOtp) {
         // Demo mode: backend returned the code because no SMS/email provider is configured.
         setRegOtpCode(response.demoOtp);
-        setSuccessMessage(`🧪 Demo mode — your ${regOtpChannel} OTP is ${response.demoOtp} (autofilled)`);
+        setDemoOtpCode(response.demoOtp);
+        setSuccessMessage(`🧪 Demo mode — OTP auto-filled below!`);
       } else {
         setSuccessMessage(`✅ OTP sent via ${regOtpChannel}!`);
       }
@@ -451,6 +456,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMessage}</span>
+          </div>
+        )}
+
+        {/* Demo OTP Banner — big and impossible to miss */}
+        {demoOtpCode && (
+          <div className="mt-4 p-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border-2 border-amber-500/50 rounded-2xl text-center">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-amber-400 font-bold mb-2">
+              🧪 Demo Mode — No Email/SMS Provider Configured
+            </p>
+            <p className="text-xs text-stone-400 mb-2">Your OTP code is:</p>
+            <div className="inline-flex items-center gap-1 bg-stone-950 border border-amber-500/40 rounded-xl px-5 py-3">
+              <span className="text-3xl font-mono font-bold text-amber-400 tracking-[0.3em]">{demoOtpCode}</span>
+            </div>
+            <p className="text-[10px] text-stone-500 mt-2">Code has been auto-filled in the OTP field below ↑</p>
           </div>
         )}
 

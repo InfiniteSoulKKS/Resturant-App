@@ -209,6 +209,21 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          {/* Admin Dashboard — admin users get their own overview */}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('admin_dashboard')}
+              className={`text-xs font-medium transition-all py-1.5 px-3 rounded-xl cursor-pointer flex items-center gap-2 whitespace-nowrap ${
+                activeTab === 'admin_dashboard'
+                  ? 'bg-amber-500/15 text-amber-400 font-semibold border border-amber-500/30'
+                  : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800/50'
+              }`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>Admin</span>
+            </button>
+          )}
+
           {/* Super Admin Dashboard */}
           {isSuperAdmin && (
             <button
@@ -220,7 +235,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Admin</span>
+              <span>Platform</span>
             </button>
           )}
 

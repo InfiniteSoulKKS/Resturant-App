@@ -306,8 +306,9 @@ public class PreOrderAvailabilityService {
                 }
                 dishes.add(dish);
             }
+            // A date is orderable if at least one dish is available (partial availability)
             boolean orderable = !closed && !cutoff
-                    && dishes.stream().allMatch(d -> (Boolean) d.get("available"));
+                    && dishes.stream().anyMatch(d -> (Boolean) d.get("available"));
             row.put("orderable", orderable);
             row.put("reasons", reasons);
             row.put("dishes", dishes);

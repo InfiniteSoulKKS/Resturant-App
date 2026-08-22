@@ -52,6 +52,7 @@ class OrderServiceTenantIsolationTest {
     @Mock CustomerRestaurantService customerRestaurantService;
     @Mock AuditService auditService;
     @Mock RefundRepository refundRepository;
+    @Mock RealtimeService realtimeService;
 
     private OrderService service;
 
@@ -61,7 +62,7 @@ class OrderServiceTenantIsolationTest {
                 orderRepository, orderItemRepository, menuItemRepository,
                 orderStatusHistoryRepository, paymentRepository, menuService,
                 outboxService, ingredientService, availabilityService, restaurantRepository,
-                customerRestaurantService, auditService, refundRepository);
+                customerRestaurantService, auditService, refundRepository, realtimeService);
     }
 
     // ==================== CROSS-RESTAURANT PAYMENT ====================

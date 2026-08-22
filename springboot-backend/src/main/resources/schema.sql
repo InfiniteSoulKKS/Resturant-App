@@ -48,6 +48,23 @@ CREATE TABLE IF NOT EXISTS menu_items (
     FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS ingredients (
+    id VARCHAR(64) PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0, -- optimistic locking (concurrent stock writes)
+    restaurant_id VARCHAR(64) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    display_name VARCHAR(100),
+    normalized_name VARCHAR(100) NOT NULL,
+    unit VARCHAR(20) NOT NULL,
+    category VARCHAR(50),
+    stock_quantity DECIMAL(12, 3) NOT NULL DEFAULT 0,
+    reorder_level DECIMAL(12, 3) DEFAULT 0,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMP,
+    FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_ingredient_restaurant_normalized (restaurant_id, normalized_name)
+);
+
 CREATE TABLE IF NOT EXISTS menu_item_ingredients (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     menu_item_id VARCHAR(64) NOT NULL,
@@ -114,23 +131,6 @@ CREATE TABLE IF NOT EXISTS payments (
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS ingredients (
-    id VARCHAR(64) PRIMARY KEY,
-    version BIGINT NOT NULL DEFAULT 0, -- optimistic locking (concurrent stock writes)
-    restaurant_id VARCHAR(64) NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    display_name VARCHAR(100),
-    normalized_name VARCHAR(100) NOT NULL,
-    unit VARCHAR(20) NOT NULL,
-    category VARCHAR(50),
-    stock_quantity DECIMAL(12, 3) NOT NULL DEFAULT 0,
-    reorder_level DECIMAL(12, 3) DEFAULT 0,
-    active BOOLEAN NOT NULL DEFAULT TRUE,
-    updated_at TIMESTAMP,
-    FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_ingredient_restaurant_normalized (restaurant_id, normalized_name)
-);
-
 CREATE TABLE IF NOT EXISTS notifications (
     id VARCHAR(64) PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL,
@@ -180,6 +180,9 @@ CREATE TABLE IF NOT EXISTS outbox_event (
     payload TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     published_at TIMESTAMP NULL,
+    retry_count INT NOT NULL DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING, PUBLISHED, FAILED
+    failed_at TIMESTAMP NULL,
     -- The OutboxPoller scans unpublished rows every 3s
     INDEX idx_outbox_unpublished (published_at)
 );

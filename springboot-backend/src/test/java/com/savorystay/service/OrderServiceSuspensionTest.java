@@ -53,6 +53,7 @@ class OrderServiceSuspensionTest {
     @Mock CustomerRestaurantService customerRestaurantService;
     @Mock AuditService auditService;
     @Mock RefundRepository refundRepository;
+    @Mock RealtimeService realtimeService;
 
     private OrderService service;
 
@@ -62,7 +63,7 @@ class OrderServiceSuspensionTest {
                 orderRepository, orderItemRepository, menuItemRepository,
                 orderStatusHistoryRepository, paymentRepository, menuService,
                 outboxService, ingredientService, availabilityService, restaurantRepository,
-                customerRestaurantService, auditService, refundRepository);
+                customerRestaurantService, auditService, refundRepository, realtimeService);
     }
 
     private List<OrderItemRequest> items() {

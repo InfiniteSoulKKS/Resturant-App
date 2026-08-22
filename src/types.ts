@@ -13,6 +13,7 @@ export interface MenuItem {
   isVeg?: boolean; // True = Veg (Green), False = Non-Veg (Red)
   spiceLevel?: 'Mild' | 'Medium' | 'Spicy' | 'Fiery Hot';
   prepMinutes?: number;
+  dailyPlateCount?: number | null; // null = unlimited plates
   createdAt?: string;
 }
 
@@ -184,6 +185,27 @@ export interface PreOrderDateOption {
   dishes: { menuItemId: string; title: string; available: boolean; reason?: string }[];
 }
 
+export interface TableTypeConfig {
+  type: string; // '2-Seater', '4-Seater', '6-Seater'
+  count: number;
+}
+
+export interface TableAvailability {
+  type: string;
+  total: number;
+  booked: number;
+  remaining: number;
+}
+
+export interface PlateAvailability {
+  menuItemId: string;
+  title: string;
+  dailyPlateCount: number | null;
+  platesOrdered: number;
+  remaining: number; // -1 = unlimited
+  available: boolean;
+}
+
 /** Recipe row inside the menu create/edit form (name, qty per plate, unit). */
 export interface RecipeIngredient {
   ingredientId?: string;
@@ -219,4 +241,5 @@ export type ViewTab =
   | 'customer_memberships'
   | 'ingredients'
   | 'dashboard'
-  | 'preorder_settings';
+  | 'preorder_settings'
+  | 'admin_dashboard';

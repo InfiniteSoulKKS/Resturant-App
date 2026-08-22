@@ -12,7 +12,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Order } from '../types';
-import { getMyOrders } from '../lib/apiClient';
+import { getMyOrders, cancelOrder } from '../lib/apiClient';
 import { getToken } from '../lib/tokenManager';
 
 const STATUS_FLOW: { key: string; label: string; icon: React.ReactNode }[] = [
@@ -32,6 +32,8 @@ interface OrderTrackingProps {
 export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate, onReorder }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelMsg, setCancelMsg] = useState<string | null>(null);
 
   const loadOrders = () => {
     if (!getToken()) return;
@@ -86,6 +88,13 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate, onReor
         <div className="text-center py-20 bg-stone-900/60 rounded-3xl border border-stone-800">
           <ShoppingBag className="w-10 h-10 text-stone-600 mx-auto mb-2" />
           <p className="text-sm text-stone-300">No orders yet. Browse the menu to place your first order!</p>
+        </div>
+      )}
+
+      {cancelMsg && (
+        <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2 animate-slide-in">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {cancelMsg}
         </div>
       )}
 
@@ -173,6 +182,33 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ liveUpdate, onReor
                       </React.Fragment>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Cancel button for NEW orders (not yet started by kitchen) */}
+              {!isDeclined && !isCompleted && order.orderStatus === 'NEW' && (
+                <div className="mt-3">
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Cancel this order? This cannot be undone.')) return;
+                      setCancellingId(order.id);
+                      setCancelMsg(null);
+                      try {
+                        await cancelOrder(order.id, 'Cancelled by customer');
+                        setCancelMsg(`Order ${order.orderNumber} has been cancelled.`);
+                        loadOrders();
+                      } catch (e: any) {
+                        setCancelMsg(e?.message || 'Failed to cancel order');
+                      } finally {
+                        setCancellingId(null);
+                        setTimeout(() => setCancelMsg(null), 4000);
+                      }
+                    }}
+                    disabled={cancellingId === order.id}
+                    className="px-4 py-2 rounded-xl border border-rose-700/50 text-rose-400 hover:bg-rose-500/10 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {cancellingId === order.id ? 'Cancelling...' : 'Cancel Order'}
+                  </button>
                 </div>
               )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { MenuItem, Category, CartItem, PreOrderDateOption } from '../types';
-import { getPreOrderDates } from '../lib/apiClient';
+import { getPreOrderDates, getPlateAvailability, type PlateAvailabilityItem } from '../lib/apiClient';
 import {
   Plus,
   Minus,
@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface CustomerMenuViewProps {
@@ -36,6 +37,8 @@ interface CustomerMenuViewProps {
   restaurantId?: string;
   /** Called when the customer picks a date in the calendar ('' when none). */
   onPreOrderDateChange?: (date: string) => void;
+  /** Real-time plate count updates from SSE — menuItemId → remaining plates. */
+  plateUpdates?: Map<string, number>;
 }
 
 const CATEGORIES: Category[] = ['All Items', 'Starters', 'Mains', 'Breads', 'Desserts', 'Beverages'];
@@ -52,6 +55,7 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
   onOpenAuth,
   restaurantId,
   onPreOrderDateChange,
+  plateUpdates,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<Category>('All Items');
   const [dietFilter, setDietFilter] = useState<'ALL' | 'VEG' | 'NON_VEG'>('ALL');
@@ -63,6 +67,9 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
   const [dishFilter, setDishFilter] = useState<string>(''); // '' = all dishes
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
+
+  // Plate availability — tracks remaining plates per dish for low-stock indicators
+  const [plateAvailability, setPlateAvailability] = useState<PlateAvailabilityItem[]>([]);
 
   useEffect(() => {
     if (!restaurantId || menuItems.length === 0) return;
@@ -110,6 +117,32 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
+  // Fetch plate availability for low-stock indicators + periodic refresh every 30s
+  useEffect(() => {
+    if (!restaurantId || menuItems.length === 0) return;
+    let cancelled = false;
+    const fetchPlates = () => {
+      getPlateAvailability(restaurantId)
+        .then((items) => { if (!cancelled) setPlateAvailability(items); })
+        .catch(() => { /* ignore — low stock is informational */ });
+    };
+    fetchPlates(); // initial fetch
+    const interval = setInterval(fetchPlates, 30_000); // refresh every 30s
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [restaurantId, menuItems.length]);
+
+  /** Lookup plate remaining for a menu item. Returns null if no cap. */
+  const getPlateRemaining = (menuItemId: string): number | null => {
+    // Check real-time SSE updates first (most current)
+    if (plateUpdates?.has(menuItemId)) {
+      return plateUpdates.get(menuItemId)!;
+    }
+    // Fall back to initial fetch data
+    const pa = plateAvailability.find((p) => p.menuItemId === menuItemId);
+    if (!pa || pa.dailyPlateCount === null) return null; // unlimited
+    return pa.remaining;
+  };
+
   const filteredItems = menuItems.filter((item) => {
     const matchesSearch =
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -130,6 +163,13 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
 
   const totalItemCount = cart.reduce((sum, ci) => sum + ci.quantity, 0);
   const totalCartPrice = cart.reduce((sum, ci) => sum + ci.menuItem.price * ci.quantity, 0);
+
+  // Detect cart items that are now sold out (changed since customer added them)
+  const unavailableInCart = cart.filter((ci) => {
+    const current = menuItems.find((m) => m.id === ci.menuItem.id);
+    return current && current.status === 'Sold Out';
+  });
+  const hasUnavailable = unavailableInCart.length > 0;
 
   /** "Wed, 20 Aug" from a yyyy-MM-dd string (business-day labels, IST-safe). */
   const prettyDate = (dateStr: string): string => {
@@ -491,6 +531,28 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
                     Sold Out
                   </div>
                 )}
+                {!isSoldOut && (() => {
+                  const remaining = getPlateRemaining(item.id);
+                  if (remaining === null) return null; // unlimited
+                  const cap = item.dailyPlateCount || 30;
+                  const pct = Math.round((remaining / cap) * 100);
+                  const isLow = pct <= 20 && remaining > 0;
+                  const isCritical = pct <= 10 && remaining > 0;
+                  if (!isLow) return null;
+                  return (
+                    <div className={`absolute bottom-3 left-3 ${
+                      isCritical
+                        ? 'bg-amber-500/90 text-stone-950 border border-amber-400'
+                        : 'bg-amber-950/90 text-amber-400 border border-amber-800/80'
+                    } text-[10px] font-bold px-2 py-1 rounded-lg shadow flex items-center gap-1`}
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      {remaining} left today
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Card Details Body */}
@@ -509,12 +571,41 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
                 </p>
 
                 {item.spiceLevel && (
-                  <div className="flex items-center gap-1 mb-4 text-[11px] text-stone-400">
+                  <div className="flex items-center gap-1 mb-3 text-[11px] text-stone-400">
                     <Flame className="w-3.5 h-3.5 text-amber-500" />
                     <span>Spice Level:</span>
                     <span className="text-amber-400 font-semibold">{item.spiceLevel}</span>
                   </div>
                 )}
+
+                {/* Daily plate remaining indicator */}
+                {!isSoldOut && (() => {
+                  const remaining = getPlateRemaining(item.id);
+                  if (remaining === null) return null; // unlimited
+                  const cap = item.dailyPlateCount || 30;
+                  const pct = Math.max(0, Math.min(100, Math.round((remaining / cap) * 100)));
+                  const isLow = pct <= 20 && remaining > 0;
+                  return (
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[10px] font-semibold ${isLow ? 'text-amber-400' : 'text-stone-500'}`}>
+                          {isLow ? '⚠️ ' : ''}{remaining} of {cap} plates left today
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-stone-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            pct <= 10 ? 'bg-rose-500' :
+                            pct <= 20 ? 'bg-amber-500' :
+                            pct <= 50 ? 'bg-amber-400/60' :
+                            'bg-emerald-500/60'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Pre-order status on the selected calendar date */}
                 {activeDate && dishStatusOnActiveDate(item.id) !== 'none' && (
@@ -555,12 +646,20 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
                       </div>
                     )
                   ) : isSoldOut ? (
-                    <button
-                      disabled
-                      className="w-full py-2.5 rounded-xl bg-stone-950 text-stone-600 border border-stone-800 text-xs font-semibold cursor-not-allowed text-center"
-                    >
-                      Currently Unavailable
-                    </button>
+                    <div className="space-y-2">
+                      {quantityInCart > 0 && (
+                        <div className="flex items-center gap-1.5 text-[10px] font-semibold text-rose-400 bg-rose-950/40 border border-rose-800/50 rounded-lg px-2.5 py-1.5">
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>{quantityInCart} in cart — now sold out</span>
+                        </div>
+                      )}
+                      <button
+                        disabled
+                        className="w-full py-2.5 rounded-xl bg-stone-950 text-stone-600 border border-stone-800 text-xs font-semibold cursor-not-allowed text-center"
+                      >
+                        Currently Unavailable
+                      </button>
+                    </div>
                   ) : quantityInCart > 0 ? (
                     <div className="flex items-center justify-between bg-stone-950 border border-amber-500/40 p-1.5 rounded-xl">
                       <button
@@ -613,6 +712,12 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
       {/* Mobile Bottom Sticky Order Bar */}
       {cart.length > 0 && allowOrdering && (
         <div className="fixed bottom-16 md:bottom-0 left-0 w-full bg-stone-950/95 backdrop-blur-xl border-t border-stone-800 z-30 px-4 py-3 md:hidden shadow-2xl">
+          {hasUnavailable && (
+            <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold text-rose-400">
+              <AlertTriangle className="w-3 h-3" />
+              {unavailableInCart.length} item{unavailableInCart.length !== 1 ? 's' : ''} no longer available
+            </div>
+          )}
           <div className="flex justify-between items-center mb-2">
             <div className="flex items-center gap-2">
               <ShoppingBag className="w-4 h-4 text-amber-400" />
@@ -626,9 +731,14 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
           </div>
           <button
             onClick={onProceedToPayment}
-            className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20 cursor-pointer"
+            className={`w-full py-3 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              hasUnavailable
+                ? 'bg-amber-500/80 hover:bg-amber-400 text-stone-950 shadow-lg shadow-amber-500/10'
+                : 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-lg shadow-amber-500/20'
+            }`}
           >
-            <span>Proceed to Checkout</span>
+            {hasUnavailable ? <AlertTriangle className="w-4 h-4" /> : null}
+            <span>{hasUnavailable ? 'Review Cart & Checkout' : 'Proceed to Checkout'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -637,6 +747,13 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
       {/* Desktop Floating Order Pill Bar */}
       {cart.length > 0 && allowOrdering && (
         <div className="hidden md:flex fixed bottom-6 left-1/2 -translate-x-1/2 bg-stone-950/90 backdrop-blur-xl shadow-2xl rounded-full px-6 py-3 items-center space-x-6 z-30 border border-amber-500/30 amber-glow">
+          {hasUnavailable && (
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-rose-400">
+              <AlertTriangle className="w-3 h-3" />
+              {unavailableInCart.length} unavailable
+            </div>
+          )}
+          {hasUnavailable && <span className="w-px h-5 bg-stone-800"></span>}
           <div className="flex items-center space-x-2">
             <ShoppingBag className="w-5 h-5 text-amber-400" />
             <span className="text-xs font-medium text-stone-200">
@@ -651,7 +768,8 @@ export const CustomerMenuView: React.FC<CustomerMenuViewProps> = ({
             onClick={onProceedToPayment}
             className="py-2.5 px-6 bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold rounded-full transition-all cursor-pointer shadow-lg shadow-amber-500/20 flex items-center gap-2"
           >
-            <span>Verify Order & Schedule Pickup</span>
+            {hasUnavailable ? <AlertTriangle className="w-4 h-4" /> : null}
+            <span>{hasUnavailable ? 'Review Cart & Checkout' : 'Verify Order & Schedule Pickup'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

@@ -1,6 +1,7 @@
 package com.savorystay.config;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -14,6 +15,7 @@ import org.springframework.kafka.config.TopicBuilder;
  * notifications (Gmail emails, Twilio SMS/WhatsApp, in-app SSE pushes).
  */
 @Configuration
+@ConditionalOnProperty(name = "app.kafka.enabled", havingValue = "true", matchIfMissing = true)
 public class KafkaTopicConfig {
 
     public static final String ORDERS_TOPIC = "savorystay.orders";
