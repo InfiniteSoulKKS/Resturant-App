@@ -283,105 +283,118 @@ public class DataSeeder implements CommandLineRunner {
     // ═══════════════════════════════════════════════════════════════════════
 
     private void seedRecipesV2(String restaurantId, String p) {
+        // ING number map: ingredient name → ING suffix
+        // p+_ING_1=Chicken, _2=Mutton, _3=Paneer, _4=Prawns, _5=Fish,
+        // _6=Butter, _7=Fresh Cream, _8=Tomato Puree, _9=Yogurt, _10=Wheat Flour,
+        // _11=Basmati Rice, _12=Milk, _13=Sugar, _14=Tea Leaves, _15=Milk Powder,
+        // _16=Onions, _17=Garlic, _18=Ginger, _19=Green Chilies, _20=Cumin Seeds,
+        // _21=Saffron, _22=Cardamom, _23=Cashews, _24=Almonds, _25=Rose Water, _26=Fenugreek
+        String C=p+"_ING_1", M=p+"_ING_2", P=p+"_ING_3", PR=p+"_ING_4", F=p+"_ING_5",
+              B=p+"_ING_6", CR=p+"_ING_7", TP=p+"_ING_8", Y=p+"_ING_9", WF=p+"_ING_10",
+              BR=p+"_ING_11", ML=p+"_ING_12", S=p+"_ING_13", TL=p+"_ING_14", MP=p+"_ING_15",
+              ON=p+"_ING_16", GA=p+"_ING_17", GI=p+"_ING_18", GC=p+"_ING_19", CS=p+"_ING_20",
+              SA=p+"_ING_21", CD=p+"_ING_22", CW=p+"_ING_23", AL=p+"_ING_24";
+
         List<MenuItemIngredient> recipes = List.of(
                 // Butter Chicken
-                r(p+"_MI_1", restaurantId, "Chicken",       "250", "g"),
-                r(p+"_MI_1", restaurantId, "Butter",         "50", "g"),
-                r(p+"_MI_1", restaurantId, "Fresh Cream",   "100", "ml"),
-                r(p+"_MI_1", restaurantId, "Tomato Puree",  "150", "g"),
+                r(p+"_MI_1", restaurantId, C,  "Chicken",       "250", "g"),
+                r(p+"_MI_1", restaurantId, B,  "Butter",         "50", "g"),
+                r(p+"_MI_1", restaurantId, CR, "Fresh Cream",   "100", "ml"),
+                r(p+"_MI_1", restaurantId, TP, "Tomato Puree",  "150", "g"),
                 // Paneer Tikka
-                r(p+"_MI_2", restaurantId, "Paneer",        "200", "g"),
-                r(p+"_MI_2", restaurantId, "Yogurt",         "60", "g"),
-                r(p+"_MI_2", restaurantId, "Green Chilies",  "10", "g"),
+                r(p+"_MI_2", restaurantId, P,  "Paneer",        "200", "g"),
+                r(p+"_MI_2", restaurantId, Y,  "Yogurt",         "60", "g"),
+                r(p+"_MI_2", restaurantId, GC, "Green Chilies",  "10", "g"),
                 // Garlic Naan
-                r(p+"_MI_3", restaurantId, "Wheat Flour",    "80", "g"),
-                r(p+"_MI_3", restaurantId, "Butter",         "15", "g"),
-                r(p+"_MI_3", restaurantId, "Garlic",          "8", "g"),
+                r(p+"_MI_3", restaurantId, WF, "Wheat Flour",    "80", "g"),
+                r(p+"_MI_3", restaurantId, B,  "Butter",         "15", "g"),
+                r(p+"_MI_3", restaurantId, GA, "Garlic",          "8", "g"),
                 // Gulab Jamun
-                r(p+"_MI_4", restaurantId, "Milk Powder",    "50", "g"),
-                r(p+"_MI_4", restaurantId, "Sugar",          "40", "g"),
+                r(p+"_MI_4", restaurantId, MP, "Milk Powder",    "50", "g"),
+                r(p+"_MI_4", restaurantId, S,  "Sugar",          "40", "g"),
                 // Masala Chai
-                r(p+"_MI_5", restaurantId, "Tea Leaves",      "5", "g"),
-                r(p+"_MI_5", restaurantId, "Milk",          "150", "ml"),
-                r(p+"_MI_5", restaurantId, "Ginger",          "5", "g"),
+                r(p+"_MI_5", restaurantId, TL, "Tea Leaves",      "5", "g"),
+                r(p+"_MI_5", restaurantId, ML, "Milk",          "150", "ml"),
+                r(p+"_MI_5", restaurantId, GI, "Ginger",          "5", "g"),
                 // Chicken Seekh Kebab
-                r(p+"_MI_6", restaurantId, "Chicken",       "200", "g"),
-                r(p+"_MI_6", restaurantId, "Yogurt",         "40", "g"),
-                r(p+"_MI_6", restaurantId, "Cumin Seeds",     "3", "g"),
+                r(p+"_MI_6", restaurantId, C,  "Chicken",       "200", "g"),
+                r(p+"_MI_6", restaurantId, Y,  "Yogurt",         "40", "g"),
+                r(p+"_MI_6", restaurantId, CS, "Cumin Seeds",     "3", "g"),
                 // Crispy Paneer 65
-                r(p+"_MI_7", restaurantId, "Paneer",        "200", "g"),
-                r(p+"_MI_7", restaurantId, "Yogurt",         "30", "g"),
+                r(p+"_MI_7", restaurantId, P,  "Paneer",        "200", "g"),
+                r(p+"_MI_7", restaurantId, Y,  "Yogurt",         "30", "g"),
                 // Tandoori Prawns
-                r(p+"_MI_8", restaurantId, "Prawns",        "250", "g"),
-                r(p+"_MI_8", restaurantId, "Yogurt",         "50", "g"),
-                r(p+"_MI_8", restaurantId, "Saffron",         "1", "g"),
+                r(p+"_MI_8", restaurantId, PR, "Prawns",        "250", "g"),
+                r(p+"_MI_8", restaurantId, Y,  "Yogurt",         "50", "g"),
+                r(p+"_MI_8", restaurantId, SA, "Saffron",         "1", "g"),
                 // Dal Makhani
-                r(p+"_MI_9", restaurantId, "Wheat Flour",   "150", "g"),
-                r(p+"_MI_9", restaurantId, "Butter",          "30", "g"),
-                r(p+"_MI_9", restaurantId, "Fresh Cream",    "50", "ml"),
+                r(p+"_MI_9", restaurantId, WF, "Wheat Flour",   "150", "g"),
+                r(p+"_MI_9", restaurantId, B,  "Butter",          "30", "g"),
+                r(p+"_MI_9", restaurantId, CR, "Fresh Cream",    "50", "ml"),
                 // Mutton Rogan Josh
-                r(p+"_MI_10", restaurantId, "Mutton",       "300", "g"),
-                r(p+"_MI_10", restaurantId, "Yogurt",         "50", "g"),
-                r(p+"_MI_10", restaurantId, "Cardamom",        "3", "g"),
+                r(p+"_MI_10", restaurantId, M,  "Mutton",       "300", "g"),
+                r(p+"_MI_10", restaurantId, Y,  "Yogurt",         "50", "g"),
+                r(p+"_MI_10", restaurantId, CD, "Cardamom",        "3", "g"),
                 // Palak Paneer
-                r(p+"_MI_11", restaurantId, "Paneer",       "180", "g"),
-                r(p+"_MI_11", restaurantId, "Butter",          "20", "g"),
+                r(p+"_MI_11", restaurantId, P,  "Paneer",       "180", "g"),
+                r(p+"_MI_11", restaurantId, B,  "Butter",          "20", "g"),
                 // Hyderabadi Biryani
-                r(p+"_MI_12", restaurantId, "Basmati Rice",  "250", "g"),
-                r(p+"_MI_12", restaurantId, "Mutton",        "200", "g"),
-                r(p+"_MI_12", restaurantId, "Saffron",         "1", "g"),
-                r(p+"_MI_12", restaurantId, "Onions",         "80", "g"),
-                r(p+"_MI_12", restaurantId, "Yogurt",         "40", "g"),
+                r(p+"_MI_12", restaurantId, BR, "Basmati Rice",  "250", "g"),
+                r(p+"_MI_12", restaurantId, M,  "Mutton",        "200", "g"),
+                r(p+"_MI_12", restaurantId, SA, "Saffron",         "1", "g"),
+                r(p+"_MI_12", restaurantId, ON, "Onions",         "80", "g"),
+                r(p+"_MI_12", restaurantId, Y,  "Yogurt",         "40", "g"),
                 // Chole Bhature
-                r(p+"_MI_13", restaurantId, "Wheat Flour",   "200", "g"),
-                r(p+"_MI_13", restaurantId, "Cumin Seeds",     "3", "g"),
+                r(p+"_MI_13", restaurantId, WF, "Wheat Flour",   "200", "g"),
+                r(p+"_MI_13", restaurantId, CS, "Cumin Seeds",     "3", "g"),
                 // Fish Amritsari
-                r(p+"_MI_14", restaurantId, "Fish",          "250", "g"),
-                r(p+"_MI_14", restaurantId, "Wheat Flour",    "80", "g"),
-                r(p+"_MI_14", restaurantId, "Garlic",         "10", "g"),
+                r(p+"_MI_14", restaurantId, F,  "Fish",          "250", "g"),
+                r(p+"_MI_14", restaurantId, WF, "Wheat Flour",    "80", "g"),
+                r(p+"_MI_14", restaurantId, GA, "Garlic",         "10", "g"),
                 // Veg Biryani
-                r(p+"_MI_15", restaurantId, "Basmati Rice",  "200", "g"),
-                r(p+"_MI_15", restaurantId, "Onions",         "60", "g"),
+                r(p+"_MI_15", restaurantId, BR, "Basmati Rice",  "200", "g"),
+                r(p+"_MI_15", restaurantId, ON, "Onions",         "60", "g"),
                 // Butter Naan
-                r(p+"_MI_16", restaurantId, "Wheat Flour",    "70", "g"),
-                r(p+"_MI_16", restaurantId, "Butter",          "20", "g"),
+                r(p+"_MI_16", restaurantId, WF, "Wheat Flour",    "70", "g"),
+                r(p+"_MI_16", restaurantId, B,  "Butter",          "20", "g"),
                 // Cheese Garlic Naan
-                r(p+"_MI_17", restaurantId, "Wheat Flour",    "80", "g"),
-                r(p+"_MI_17", restaurantId, "Garlic",         "10", "g"),
+                r(p+"_MI_17", restaurantId, WF, "Wheat Flour",    "80", "g"),
+                r(p+"_MI_17", restaurantId, GA, "Garlic",         "10", "g"),
                 // Laccha Paratha
-                r(p+"_MI_18", restaurantId, "Wheat Flour",    "90", "g"),
-                r(p+"_MI_18", restaurantId, "Butter",          "15", "g"),
+                r(p+"_MI_18", restaurantId, WF, "Wheat Flour",    "90", "g"),
+                r(p+"_MI_18", restaurantId, B,  "Butter",          "15", "g"),
                 // Missi Roti
-                r(p+"_MI_19", restaurantId, "Wheat Flour",    "80", "g"),
-                r(p+"_MI_19", restaurantId, "Cumin Seeds",     "2", "g"),
+                r(p+"_MI_19", restaurantId, WF, "Wheat Flour",    "80", "g"),
+                r(p+"_MI_19", restaurantId, CS, "Cumin Seeds",     "2", "g"),
                 // Rasmalai
-                r(p+"_MI_20", restaurantId, "Paneer",        "120", "g"),
-                r(p+"_MI_20", restaurantId, "Milk",          "200", "ml"),
-                r(p+"_MI_20", restaurantId, "Saffron",         "1", "g"),
+                r(p+"_MI_20", restaurantId, P,  "Paneer",        "120", "g"),
+                r(p+"_MI_20", restaurantId, ML, "Milk",          "200", "ml"),
+                r(p+"_MI_20", restaurantId, SA, "Saffron",         "1", "g"),
                 // Kulfi Falooda
-                r(p+"_MI_21", restaurantId, "Milk",          "250", "ml"),
-                r(p+"_MI_21", restaurantId, "Sugar",          "30", "g"),
-                r(p+"_MI_21", restaurantId, "Cashews",        "10", "g"),
+                r(p+"_MI_21", restaurantId, ML, "Milk",          "250", "ml"),
+                r(p+"_MI_21", restaurantId, S,  "Sugar",          "30", "g"),
+                r(p+"_MI_21", restaurantId, CW, "Cashews",        "10", "g"),
                 // Gajar Ka Halwa
-                r(p+"_MI_22", restaurantId, "Milk",          "300", "ml"),
-                r(p+"_MI_22", restaurantId, "Sugar",          "40", "g"),
-                r(p+"_MI_22", restaurantId, "Almonds",        "15", "g"),
+                r(p+"_MI_22", restaurantId, ML, "Milk",          "300", "ml"),
+                r(p+"_MI_22", restaurantId, S,  "Sugar",          "40", "g"),
+                r(p+"_MI_22", restaurantId, AL, "Almonds",        "15", "g"),
                 // Phirni
-                r(p+"_MI_23", restaurantId, "Milk",          "200", "ml"),
-                r(p+"_MI_23", restaurantId, "Sugar",          "30", "g"),
+                r(p+"_MI_23", restaurantId, ML, "Milk",          "200", "ml"),
+                r(p+"_MI_23", restaurantId, S,  "Sugar",          "30", "g"),
                 // Mango Lassi
-                r(p+"_MI_24", restaurantId, "Yogurt",        "200", "g"),
-                r(p+"_MI_24", restaurantId, "Sugar",          "20", "g"),
+                r(p+"_MI_24", restaurantId, Y,  "Yogurt",        "200", "g"),
+                r(p+"_MI_24", restaurantId, S,  "Sugar",          "20", "g"),
                 // Cold Coffee
-                r(p+"_MI_25", restaurantId, "Milk",          "200", "ml"),
-                r(p+"_MI_25", restaurantId, "Sugar",          "25", "g")
+                r(p+"_MI_25", restaurantId, ML, "Milk",          "200", "ml"),
+                r(p+"_MI_25", restaurantId, S,  "Sugar",          "25", "g")
         );
         menuItemIngredientRepository.saveAll(recipes);
     }
 
-    private MenuItemIngredient r(String miId, String restId, String name, String qty, String unit) {
+    private MenuItemIngredient r(String miId, String restId, String ingredientId, String name, String qty, String unit) {
         return MenuItemIngredient.builder().menuItemId(miId).restaurantId(restId)
-                .name(name).quantityPerUnit(new BigDecimal(qty)).unit(unit).build();
+                .ingredientId(ingredientId).name(name)
+                .quantityPerUnit(new BigDecimal(qty)).unit(unit).build();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
