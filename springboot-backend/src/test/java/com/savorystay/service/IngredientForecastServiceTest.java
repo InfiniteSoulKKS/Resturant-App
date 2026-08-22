@@ -45,6 +45,7 @@ class IngredientForecastServiceTest {
     @Mock OrderItemRepository orderItemRepository;
     @Mock InventoryLedgerRepository inventoryLedgerRepository;
     @Mock OutboxService outboxService;
+    @Mock AuditService auditService;
 
     private IngredientService service;
 
@@ -52,7 +53,7 @@ class IngredientForecastServiceTest {
     void setUp() {
         service = new IngredientService(
                 ingredientRepository, menuItemIngredientRepository, orderRepository,
-                orderItemRepository, inventoryLedgerRepository, outboxService);
+                orderItemRepository, inventoryLedgerRepository, outboxService, auditService);
     }
 
     private Order preOrder(String id, String date) {

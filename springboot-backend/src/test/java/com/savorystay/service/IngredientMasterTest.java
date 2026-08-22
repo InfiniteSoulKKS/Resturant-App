@@ -29,6 +29,7 @@ class IngredientMasterTest {
 
     @Mock IngredientRepository ingredientRepository;
     @Mock MenuItemIngredientRepository menuItemIngredientRepository;
+    @Mock AuditService auditService;
 
     private IngredientService service;
 
@@ -37,7 +38,7 @@ class IngredientMasterTest {
         // Minimal service construction — only fields needed for master tests
         service = new IngredientService(
                 ingredientRepository, menuItemIngredientRepository,
-                null, null, null, null);
+                null, null, null, null, auditService);
     }
 
     private Ingredient ingredient(String name, String unit) {

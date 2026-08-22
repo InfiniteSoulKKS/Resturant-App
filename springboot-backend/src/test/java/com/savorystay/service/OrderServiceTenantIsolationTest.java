@@ -50,6 +50,7 @@ class OrderServiceTenantIsolationTest {
     @Mock PlateCapacityRepository plateCapacityRepository;
     @Mock TableSlotCapacityRepository tableSlotCapacityRepository;
     @Mock RestaurantSettingsRepository restaurantSettingsRepository;
+    @Mock MenuItemIngredientRepository menuItemIngredientRepository;
 
     private OrderService service;
 
@@ -60,7 +61,8 @@ class OrderServiceTenantIsolationTest {
                 orderStatusHistoryRepository, paymentRepository, menuService,
                 outboxService, ingredientService, availabilityService, restaurantRepository,
                 customerRestaurantService, auditService, refundRepository, realtimeService,
-                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository);
+                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository,
+                menuItemIngredientRepository);
     }
 
     // ==================== CROSS-RESTAURANT PAYMENT ====================

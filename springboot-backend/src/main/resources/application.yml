@@ -90,6 +90,10 @@ app:
   name: SavoryStay
   # Public base URL used in email footers / links.
   url: ${APP_URL:http://localhost:5173}
+  # P0.31: When true, OTP codes are returned in API responses even with real
+  # email/SMS providers configured. Only enable for explicit demo/testing.
+  demo:
+    otp-expose: ${APP_DEMO_OTP_EXPOSE:true}
   # Restaurant business timezone — every pre-order cutoff / availability / closure
   # rule is evaluated in this zone (BusinessClock). Defaults to IST.
   business:

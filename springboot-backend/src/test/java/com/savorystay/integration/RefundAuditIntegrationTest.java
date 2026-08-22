@@ -422,7 +422,7 @@ class RefundAuditIntegrationTest {
     void cancelCompletedOrderRejected() {
         Order order = createOrder("COMPLETED", "PAID", "UPI");
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(com.savorystay.config.OrderStateException.class,
                 () -> orderService.updateStatus(
                         order.getId(), REST_ID, "CANCELLED", USER_MGR, "ROLE_MANAGER"));
 

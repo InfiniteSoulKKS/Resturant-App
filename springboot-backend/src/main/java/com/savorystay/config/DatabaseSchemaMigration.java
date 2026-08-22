@@ -29,6 +29,7 @@ public class DatabaseSchemaMigration implements CommandLineRunner {
         addTableSlotCapacityTable();
         addOrderIndexes();
         addOrderItemIndexes();
+        addIngredientSnapshotColumn();
         addOutboxLockColumns();
         addCustomerRestaurantIndex();
         addPaymentIndex();
@@ -130,6 +131,18 @@ public class DatabaseSchemaMigration implements CommandLineRunner {
             log.info("DatabaseSchemaMigration: order_items indexes ensured.");
         } catch (Exception e) {
             log.warn("DatabaseSchemaMigration: order_items index migration skipped: {}", e.getMessage());
+        }
+    }
+
+    /** P0.13: Add ingredient_snapshot TEXT column to order_items for recipe preservation. */
+    private void addIngredientSnapshotColumn() {
+        try {
+            if (!columnExists("order_items", "ingredient_snapshot")) {
+                jdbcTemplate.execute("ALTER TABLE order_items ADD COLUMN ingredient_snapshot TEXT NULL AFTER unit_price");
+                log.info("DatabaseSchemaMigration: order_items.ingredient_snapshot column added.");
+            }
+        } catch (Exception e) {
+            log.warn("DatabaseSchemaMigration: ingredient_snapshot migration skipped: {}", e.getMessage());
         }
     }
 

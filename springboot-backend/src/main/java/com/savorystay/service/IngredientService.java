@@ -11,6 +11,7 @@ import com.savorystay.repository.InventoryLedgerRepository;
 import com.savorystay.repository.MenuItemIngredientRepository;
 import com.savorystay.repository.OrderItemRepository;
 import com.savorystay.repository.OrderRepository;
+import com.savorystay.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class IngredientService {
     private final OrderItemRepository orderItemRepository;
     private final InventoryLedgerRepository inventoryLedgerRepository;
     private final OutboxService outboxService;
+    private final AuditService auditService;
 
     // ─── LIST ──────────────────────────────────────────────────────
 
@@ -84,7 +86,18 @@ public class IngredientService {
         if (ingredient.getStockQuantity() == null) ingredient.setStockQuantity(BigDecimal.ZERO);
         if (ingredient.getReorderLevel() == null) ingredient.setReorderLevel(BigDecimal.ZERO);
 
-        return ingredientRepository.save(ingredient);
+        Ingredient saved = ingredientRepository.save(ingredient);
+        // P0.30: Audit trail for ingredient creation
+        try {
+            String userId = TenantContext.getUserId();
+            String role = TenantContext.getRole();
+            auditService.record(restaurantId, userId, role,
+                    "INGREDIENT_CREATED", "INGREDIENT", saved.getId(),
+                    Map.of("name", saved.getName(), "unit", saved.getUnit(),
+                           "stockQuantity", saved.getStockQuantity()),
+                    "Ingredient created");
+        } catch (Exception ignored) {}
+        return saved;
     }
 
     /**
@@ -138,7 +151,18 @@ public class IngredientService {
         if (updates.getReorderLevel() != null) existing.setReorderLevel(updates.getReorderLevel());
         if (updates.getActive() != null) existing.setActive(updates.getActive());
 
-        return ingredientRepository.save(existing);
+        Ingredient saved = ingredientRepository.save(existing);
+        // P0.30: Audit trail for ingredient update
+        try {
+            String userId = TenantContext.getUserId();
+            String role = TenantContext.getRole();
+            auditService.record(restaurantId, userId, role,
+                    "INGREDIENT_UPDATED", "INGREDIENT", saved.getId(),
+                    Map.of("name", saved.getName(), "stockQuantity", saved.getStockQuantity(),
+                           "active", saved.getActive()),
+                    "Ingredient updated");
+        } catch (Exception ignored) {}
+        return saved;
     }
 
     // ─── SOFT DELETE (deactivate) ──────────────────────────────────

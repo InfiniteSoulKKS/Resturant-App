@@ -5,6 +5,7 @@ import com.savorystay.entity.User;
 import com.savorystay.repository.UserRepository;
 import com.savorystay.service.OtpService;
 import com.savorystay.service.AuthRateLimitService;
+import org.springframework.beans.factory.annotation.Value;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +26,10 @@ public class OtpController {
     private final OtpService otpService;
     private final AuthRateLimitService rateLimitService;
     private final UserRepository userRepository;
+
+    /** When true, OTP codes are returned in API responses for demo/testing. */
+    @Value("${app.demo.otp-expose:false}")
+    private boolean exposeOtp;
 
     /**
      * For LOGIN OTP sends the frontend passes a {@code username}; when present, the
@@ -127,12 +132,13 @@ public class OtpController {
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
                 response.put("message", "OTP sent to email (DEMO MODE - no SMTP credentials configured). Code: " + otpRequest.getOtpCode());
-            } else {
-                // Always include OTP code as fallback — real email is sent in
-                // background via Kafka, but spam filters may delay/block it.
+            } else if (exposeOtp) {
+                // P0.31: Only expose OTP when explicitly configured for demo/testing
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
-                response.put("message", "OTP sent to email. If not received, use code: " + otpRequest.getOtpCode());
+                response.put("message", "OTP sent to email.");
+            } else {
+                response.put("message", "OTP sent to email.");
             }
 
             return ResponseEntity.ok(response);
@@ -190,10 +196,12 @@ public class OtpController {
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
                 response.put("message", "OTP sent via SMS (DEMO MODE - no Twilio configured). Code: " + otpRequest.getOtpCode());
-            } else {
+            } else if (exposeOtp) {
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
-                response.put("message", "OTP sent via SMS. If not received, use code: " + otpRequest.getOtpCode());
+                response.put("message", "OTP sent via SMS.");
+            } else {
+                response.put("message", "OTP sent via SMS.");
             }
 
             return ResponseEntity.ok(response);
@@ -251,10 +259,12 @@ public class OtpController {
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
                 response.put("message", "OTP sent via WhatsApp (DEMO MODE - no Twilio configured). Code: " + otpRequest.getOtpCode());
-            } else {
+            } else if (exposeOtp) {
                 response.put("demoOtp", otpRequest.getOtpCode());
                 response.put("demoMode", true);
-                response.put("message", "OTP sent via WhatsApp. If not received, use code: " + otpRequest.getOtpCode());
+                response.put("message", "OTP sent via WhatsApp.");
+            } else {
+                response.put("message", "OTP sent via WhatsApp.");
             }
 
             return ResponseEntity.ok(response);

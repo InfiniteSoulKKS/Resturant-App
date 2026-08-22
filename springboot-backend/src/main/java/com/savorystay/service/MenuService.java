@@ -11,6 +11,7 @@ import com.savorystay.repository.MenuItemRepository;
 import com.savorystay.repository.OrderItemRepository;
 import com.savorystay.repository.PriceRuleRepository;
 import com.savorystay.repository.RestaurantRepository;
+import com.savorystay.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ public class MenuService {
     private final IngredientRepository ingredientMasterRepository;
     private final RealtimeService realtimeService;
     private final OrderItemRepository orderItemRepository;
+    private final AuditService auditService;
 
     /** True when the restaurant exists and is not suspended/offline. */
     public boolean isRestaurantActive(String restaurantId) {
@@ -106,6 +108,16 @@ public class MenuService {
         if (ingredients != null) {
             saveIngredients(saved.getId(), saved.getRestaurantId(), ingredients);
         }
+        // P0.30: Audit trail for menu creation
+        try {
+            String userId = TenantContext.getUserId();
+            String role = TenantContext.getRole();
+            auditService.record(saved.getRestaurantId(), userId, role,
+                    "MENU_ITEM_CREATED", "MENU_ITEM", saved.getId(),
+                    Map.of("title", saved.getTitle(), "price", saved.getPrice(),
+                           "category", saved.getCategory(), "status", saved.getStatus()),
+                    "Menu item created");
+        } catch (Exception ignored) {}
         return saved;
     }
 
@@ -117,6 +129,9 @@ public class MenuService {
 
         // Capture old status BEFORE mutation so we can detect changes
         String oldStatus = existing.getStatus();
+        // P0.30: Capture old values for audit
+        BigDecimal oldPrice = existing.getPrice();
+        String oldTitle = existing.getTitle();
 
         if (updates.getTitle() != null) existing.setTitle(updates.getTitle());
         if (updates.getDescription() != null) existing.setDescription(updates.getDescription());
@@ -139,27 +154,63 @@ public class MenuService {
             ingredientRepository.deleteByMenuItemId(id);
             saveIngredients(saved.getId(), saved.getRestaurantId(), ingredients);
         }
+
+        // P0.30: Audit trail for menu updates
+        try {
+            String userId = TenantContext.getUserId();
+            String role = TenantContext.getRole();
+            Map<String, Object> changes = new HashMap<>();
+            if (updates.getTitle() != null) changes.put("title", oldTitle + " → " + saved.getTitle());
+            if (updates.getPrice() != null && oldPrice != null && oldPrice.compareTo(saved.getPrice()) != 0)
+                changes.put("price", oldPrice + " → " + saved.getPrice());
+            if (updates.getStatus() != null) changes.put("status", oldStatus + " → " + saved.getStatus());
+            if (!changes.isEmpty()) {
+                auditService.record(restaurantId, userId, role,
+                        "MENU_ITEM_UPDATED", "MENU_ITEM", saved.getId(),
+                        changes, "Menu item updated");
+            }
+        } catch (Exception ignored) {}
         return saved;
     }
 
     @Transactional
     public void delete(String id, String restaurantId) {
-        menuItemRepository.findByIdAndRestaurantId(id, restaurantId)
+        MenuItem existing = menuItemRepository.findByIdAndRestaurantId(id, restaurantId)
                 .orElseThrow(() -> new IllegalArgumentException("Menu item not found in this restaurant"));
         ingredientRepository.deleteByMenuItemId(id);
         menuItemRepository.deleteById(id);
+        // P0.30: Audit trail for menu deletion
+        try {
+            String userId = TenantContext.getUserId();
+            String role = TenantContext.getRole();
+            auditService.record(restaurantId, userId, role,
+                    "MENU_ITEM_DELETED", "MENU_ITEM", id,
+                    Map.of("title", existing.getTitle(), "price", existing.getPrice()),
+                    "Menu item deleted");
+        } catch (Exception ignored) {}
     }
 
     @Transactional
     public MenuItem updateStatus(String id, String restaurantId, String newStatus) {
         MenuItem item = menuItemRepository.findByIdAndRestaurantId(id, restaurantId)
                 .orElseThrow(() -> new IllegalArgumentException("Menu item not found in this restaurant"));
+        String oldStatus = item.getStatus();
         item.setStatus(newStatus);
         MenuItem saved = menuItemRepository.save(item);
 
         // Broadcast availability change to all connected customers in real time via SSE
         broadcastAvailability(restaurantId, id, saved.getTitle(), newStatus, saved.getDailyPlateCount());
 
+        // P0.30: Audit trail for sold-out changes
+        try {
+            String userId = TenantContext.getUserId();
+            String role = TenantContext.getRole();
+            String action = "Sold Out".equals(newStatus) ? "DISH_MARKED_SOLD_OUT" : "DISH_RESTORED_AVAILABLE";
+            auditService.record(restaurantId, userId, role,
+                    action, "MENU_ITEM", id,
+                    Map.of("title", saved.getTitle(), "oldStatus", oldStatus, "newStatus", newStatus),
+                    action);
+        } catch (Exception ignored) {}
         return saved;
     }
 

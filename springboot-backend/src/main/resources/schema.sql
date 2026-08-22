@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     title VARCHAR(255) NOT NULL,
     quantity INT NOT NULL,
     unit_price DECIMAL(10, 2) NOT NULL,
+    ingredient_snapshot TEXT, -- P0.13: JSON snapshot of recipe at order time
     notes VARCHAR(255),
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     INDEX idx_order_items_menu_created (menu_item_id, created_at)

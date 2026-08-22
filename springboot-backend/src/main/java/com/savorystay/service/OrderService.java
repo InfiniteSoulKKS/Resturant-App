@@ -1,5 +1,6 @@
 package com.savorystay.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.savorystay.common.OrderStateMachine;
 import com.savorystay.config.OrderStateException;
 import com.savorystay.dto.OrderItemRequest;
@@ -42,6 +43,8 @@ public class OrderService {
     private final PlateCapacityRepository plateCapacityRepository;
     private final TableSlotCapacityRepository tableSlotCapacityRepository;
     private final RestaurantSettingsRepository restaurantSettingsRepository;
+    private final MenuItemIngredientRepository menuItemIngredientRepository;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     private static final List<String> FLOW = List.of("NEW", "PREPARING", "PACKED_READY", "COMPLETED");
 
@@ -130,12 +133,16 @@ public class OrderService {
             BigDecimal lineTotal = effectivePrice.multiply(BigDecimal.valueOf(qty));
             total = total.add(lineTotal);
 
+            // P0.13: Snapshot ingredient requirements at order time
+            String ingredientSnapshot = snapshotIngredients(menuItemId);
+
             orderItems.add(OrderItem.builder()
                     .orderId(null)
                     .menuItemId(menuItemId)
                     .title(menuItem.getTitle())
                     .quantity(qty)
                     .unitPrice(effectivePrice)
+                    .ingredientSnapshot(ingredientSnapshot)
                     .notes(line.notes())
                     .build());
         }
@@ -207,6 +214,33 @@ public class OrderService {
         return saved;
     }
 
+    // ─── P0.13: INGREDIENT SNAPSHOT ───────────────────────────────
+
+    /**
+     * Snapshot the ingredient requirements for a menu item at the current moment.
+     * This preserves the recipe as it was when the order was placed, so future
+     * recipe changes don't affect historical forecasts.
+     */
+    private String snapshotIngredients(String menuItemId) {
+        try {
+            List<MenuItemIngredient> ings = menuItemIngredientRepository.findByMenuItemId(menuItemId);
+            if (ings.isEmpty()) return null;
+            List<Map<String, Object>> snapshot = new ArrayList<>();
+            for (MenuItemIngredient ing : ings) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("ingredientId", ing.getIngredientId());
+                entry.put("name", ing.getName());
+                entry.put("quantity", ing.getQuantityPerUnit());
+                entry.put("unit", ing.getUnit());
+                snapshot.add(entry);
+            }
+            return objectMapper.writeValueAsString(snapshot);
+        } catch (Exception e) {
+            log.debug("Failed to snapshot ingredients for {}: {}", menuItemId, e.getMessage());
+            return null;
+        }
+    }
+
     // ─── P0.8: PLATE CAPACITY ATOMIC RESERVATION ──────────────────
 
     /**
@@ -259,6 +293,7 @@ public class OrderService {
      * Release a plate capacity reservation (called on order cancellation/decline).
      * Idempotent — releasing an already-released reservation is safe.
      */
+    @Transactional
     public void releasePlateCapacity(String menuItemId, LocalDate businessDate, int qty) {
         try {
             Optional<PlateCapacity> opt = plateCapacityRepository
@@ -319,6 +354,7 @@ public class OrderService {
     /**
      * Release a table capacity reservation (called on order cancellation).
      */
+    @Transactional
     public void releaseTableCapacity(String restaurantId, LocalDate businessDate,
                                       String timeSlot, String tableType, int tablesNeeded) {
         try {

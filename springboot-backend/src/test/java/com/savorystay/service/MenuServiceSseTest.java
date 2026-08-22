@@ -39,6 +39,7 @@ class MenuServiceSseTest {
     @Mock IngredientRepository ingredientMasterRepository;
     @Mock RealtimeService realtimeService;
     @Mock OrderItemRepository orderItemRepository;
+    @Mock AuditService auditService;
 
     private MenuService menuService;
 
@@ -50,7 +51,7 @@ class MenuServiceSseTest {
         menuService = new MenuService(
                 menuItemRepository, ingredientRepository, priceRuleRepository,
                 restaurantRepository, ingredientMasterRepository, realtimeService,
-                orderItemRepository);
+                orderItemRepository, auditService);
     }
 
     private MenuItem menuItem(String status) {

@@ -35,6 +35,15 @@ public class OrderItem {
     @Column(name = "unit_price", nullable = false, precision = 10, scale = 2)
     private BigDecimal unitPrice;
 
+    /**
+     * P0.13: JSON snapshot of ingredient requirements at order time.
+     * Preserves historical recipe data so future recipe changes don't
+     * affect past order forecasts.
+     * Format: [{"ingredientId":"...","name":"...","quantity":250,"unit":"g"},...]
+     */
+    @Column(name = "ingredient_snapshot", columnDefinition = "TEXT")
+    private String ingredientSnapshot;
+
     @Column(length = 255)
     private String notes;
 

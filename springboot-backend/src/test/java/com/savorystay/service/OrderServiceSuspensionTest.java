@@ -56,6 +56,7 @@ class OrderServiceSuspensionTest {
     @Mock PlateCapacityRepository plateCapacityRepository;
     @Mock TableSlotCapacityRepository tableSlotCapacityRepository;
     @Mock RestaurantSettingsRepository restaurantSettingsRepository;
+    @Mock MenuItemIngredientRepository menuItemIngredientRepository;
 
     private OrderService service;
 
@@ -66,7 +67,8 @@ class OrderServiceSuspensionTest {
                 orderStatusHistoryRepository, paymentRepository, menuService,
                 outboxService, ingredientService, availabilityService, restaurantRepository,
                 customerRestaurantService, auditService, refundRepository, realtimeService,
-                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository);
+                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository,
+                menuItemIngredientRepository);
     }
 
     private List<OrderItemRequest> items() {

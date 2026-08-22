@@ -47,6 +47,7 @@ class RefundServiceTest {
     @Mock PlateCapacityRepository plateCapacityRepository;
     @Mock TableSlotCapacityRepository tableSlotCapacityRepository;
     @Mock RestaurantSettingsRepository restaurantSettingsRepository;
+    @Mock com.savorystay.repository.MenuItemIngredientRepository menuItemIngredientRepository;
 
     private OrderService service;
 
@@ -57,7 +58,8 @@ class RefundServiceTest {
                 orderStatusHistoryRepository, paymentRepository, menuService,
                 outboxService, ingredientService, availabilityService, restaurantRepository,
                 customerRestaurantService, auditService, refundRepository, realtimeService,
-                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository);
+                plateCapacityRepository, tableSlotCapacityRepository, restaurantSettingsRepository,
+                menuItemIngredientRepository);
     }
 
     private Order order(String status, String paymentStatus, String restaurantId) {
