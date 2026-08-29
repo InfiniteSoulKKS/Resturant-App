@@ -56,6 +56,7 @@ export const IngredientPlanning: React.FC<IngredientPlanningProps> = ({ restaura
     category: '',
     stockQuantity: 0,
     reorderLevel: 0,
+    lowStockThreshold: 0,
   });
 
   // Operating hours
@@ -179,7 +180,7 @@ export const IngredientPlanning: React.FC<IngredientPlanningProps> = ({ restaura
       }
       setShowAddForm(false);
       setEditingId(null);
-      setForm({ name: '', displayName: '', unit: 'g', category: '', stockQuantity: 0, reorderLevel: 0 });
+      setForm({ name: '', displayName: '', unit: 'g', category: '', stockQuantity: 0, reorderLevel: 0, lowStockThreshold: 0 });
       await load();
     } catch (err: any) {
       setMessage({ type: 'err', text: `❌ ${err.message}` });
@@ -215,7 +216,7 @@ export const IngredientPlanning: React.FC<IngredientPlanningProps> = ({ restaura
         </div>
         {canManage && (
           <button
-            onClick={() => { setShowAddForm(true); setEditingId(null); setForm({ name: '', displayName: '', unit: 'g', category: '', stockQuantity: 0, reorderLevel: 0 }); }}
+            onClick={() => { setShowAddForm(true); setEditingId(null); setForm({ name: '', displayName: '', unit: 'g', category: '', stockQuantity: 0, reorderLevel: 0, lowStockThreshold: 0 }); }}
             className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-amber-500/20 cursor-pointer"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
@@ -427,14 +428,15 @@ export const IngredientPlanning: React.FC<IngredientPlanningProps> = ({ restaura
                   <th className="text-left py-2 px-2">Category</th>
                   <th className="text-right py-2 px-2">Stock</th>
                   <th className="text-right py-2 px-2">Reorder</th>
+                  <th className="text-right py-2 px-2">Kitchen Warn</th>
                   <th className="text-center py-2 px-2">Used In</th>
                   <th className="text-center py-2 px-2">Status</th>
                   {canManage && <th className="text-center py-2 pl-2">Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {filteredIngredients.map((ing) => {
-                  const low = ing.stockQuantity <= ing.reorderLevel && ing.reorderLevel > 0;
+                {filteredIngredients.map((ing) => {                   const threshold = (ing.lowStockThreshold != null && ing.lowStockThreshold > 0) ? ing.lowStockThreshold : ing.reorderLevel;
+                   const low = threshold > 0 && ing.stockQuantity <= threshold;
                   const inactive = ing.active === false;
                   const usageCount = usageCounts[ing.id] || 0;
                   return (
@@ -450,6 +452,7 @@ export const IngredientPlanning: React.FC<IngredientPlanningProps> = ({ restaura
                         {ing.stockQuantity} {ing.unit}
                       </td>
                       <td className="py-2.5 px-2 text-right font-mono text-stone-500">{ing.reorderLevel} {ing.unit}</td>
+                      <td className="py-2.5 px-2 text-right font-mono text-stone-500">{ing.lowStockThreshold ?? ing.reorderLevel} {ing.unit}</td>
                       <td className="py-2.5 px-2 text-center">
                         <span className="text-stone-400 font-mono">{usageCount}</span>
                         <span className="text-stone-600"> dish{usageCount !== 1 ? 'es' : ''}</span>
@@ -482,6 +485,7 @@ export const IngredientPlanning: React.FC<IngredientPlanningProps> = ({ restaura
                                   category: ing.category || '',
                                   stockQuantity: ing.stockQuantity,
                                   reorderLevel: ing.reorderLevel,
+                                  lowStockThreshold: ing.lowStockThreshold ?? 0,
                                 });
                                 setShowAddForm(true);
                               }}
@@ -568,13 +572,23 @@ export const IngredientPlanning: React.FC<IngredientPlanningProps> = ({ restaura
                   />
                 </div>
                 <div>
-                  <label className="text-stone-500 text-[10px] mb-1 block">Reorder Level</label>
+                  <label className="text-stone-500 text-[10px] mb-1 block">Reorder Level (restock alert)</label>
                   <input
                     required type="number" step="0.001" value={form.reorderLevel}
                     onChange={(e) => setForm({ ...form, reorderLevel: parseFloat(e.target.value) || 0 })}
                     className="w-full px-3 py-2 bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl text-stone-100 font-mono"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="text-stone-500 text-[10px] mb-1 block">Kitchen Low-Stock Warning (at or below this, kitchen sees amber alert)</label>
+                <input
+                  type="number" step="0.001" value={form.lowStockThreshold}
+                  onChange={(e) => setForm({ ...form, lowStockThreshold: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-stone-950 border border-stone-800 focus:border-amber-500 focus:outline-none rounded-xl text-stone-100 font-mono"
+                  placeholder="0 = use reorder level"
+                />
+                <p className="text-[9px] text-stone-600 mt-1">Set to 0 to fall back to reorder level.</p>
               </div>
               <div className="flex gap-2 pt-1">
                 <button type="button" onClick={() => setShowAddForm(false)}

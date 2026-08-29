@@ -33,6 +33,7 @@ public class DatabaseSchemaMigration implements CommandLineRunner {
         addOutboxLockColumns();
         addCustomerRestaurantIndex();
         addPaymentIndex();
+        addLowStockThresholdColumn();
     }
 
     private void makeEmailNullable() {
@@ -179,6 +180,18 @@ public class DatabaseSchemaMigration implements CommandLineRunner {
                     "CREATE INDEX idx_payments_order ON payments (order_id)");
         } catch (Exception e) {
             log.warn("DatabaseSchemaMigration: payments index skipped: {}", e.getMessage());
+        }
+    }
+
+    /** Add low_stock_threshold column to ingredients for kitchen-level warnings. */
+    private void addLowStockThresholdColumn() {
+        try {
+            if (!columnExists("ingredients", "low_stock_threshold")) {
+                jdbcTemplate.execute("ALTER TABLE ingredients ADD COLUMN low_stock_threshold DECIMAL(12,3) NULL AFTER reorder_level");
+                log.info("DatabaseSchemaMigration: ingredients.low_stock_threshold column added.");
+            }
+        } catch (Exception e) {
+            log.warn("DatabaseSchemaMigration: low_stock_threshold migration skipped: {}", e.getMessage());
         }
     }
 

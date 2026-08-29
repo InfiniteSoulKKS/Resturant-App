@@ -127,6 +127,7 @@ export interface Ingredient {
   category?: string;
   stockQuantity: number;
   reorderLevel: number;
+  lowStockThreshold?: number; // Kitchen warning threshold (separate from reorderLevel)
   active?: boolean;
   updatedAt?: string;
 }

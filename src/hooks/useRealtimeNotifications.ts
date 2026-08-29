@@ -5,7 +5,9 @@ import { getToken } from '../lib/tokenManager';
 export type RealtimeEvent =
   | { type: 'notification'; data: any }
   | { type: 'menu_availability'; data: any }
-  | { type: 'table_availability'; data: any };
+  | { type: 'table_availability'; data: any }
+  | { type: 'ingredient_low_stock'; data: any }
+  | { type: 'ingredient_stock_update'; data: any };
 
 /**
  * Subscribes to the backend SSE stream and invokes `onEvent` for every
@@ -45,6 +47,22 @@ export function useRealtimeNotifications(onEvent: (event: RealtimeEvent) => void
           onEventRef.current({ type: 'table_availability', data: JSON.parse((e as MessageEvent).data) });
         } catch (err) {
           console.error('Failed to parse SSE table_availability:', err);
+        }
+      });
+
+      es.addEventListener('ingredient_low_stock', (e) => {
+        try {
+          onEventRef.current({ type: 'ingredient_low_stock', data: JSON.parse((e as MessageEvent).data) });
+        } catch (err) {
+          console.error('Failed to parse SSE ingredient_low_stock:', err);
+        }
+      });
+
+      es.addEventListener('ingredient_stock_update', (e) => {
+        try {
+          onEventRef.current({ type: 'ingredient_stock_update', data: JSON.parse((e as MessageEvent).data) });
+        } catch (err) {
+          console.error('Failed to parse SSE ingredient_stock_update:', err);
         }
       });
 

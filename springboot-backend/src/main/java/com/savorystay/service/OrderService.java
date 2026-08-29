@@ -708,12 +708,134 @@ public class OrderService {
             }
         }
 
+        // P0.13: Validate ingredient stock before moving to PREPARING.
+        // Must happen BEFORE status is saved so the order stays in its current
+        // state if stock is insufficient, and the kitchen sees the rejection.
+        if ("PREPARING".equals(newStatus)) {
+            ingredientService.checkIngredientAvailability(orderId, restaurantId);
+        }
+
         order.setOrderStatus(newStatus);
         Order saved = orderRepository.save(order);
 
         // Deduct ingredient stock when cooking begins
         if ("PREPARING".equals(newStatus)) {
             ingredientService.deductForOrder(orderId, restaurantId);
+
+            // P0.13: Post-deduction stock-out check.
+            // If any ingredient is now depleted, auto-decline the order, release
+            // the stock we just deducted, release plate/table capacity, and notify
+            // both the customer and the restaurant kitchen via SSE.
+            try {
+                List<Map<String, Object>> depleted = ingredientService
+                        .notifyDepletedIngredients(orderId, restaurantId);
+                if (!depleted.isEmpty()) {
+                    String ingredientNames = depleted.stream()
+                            .map(d -> (String) d.get("name"))
+                            .collect(Collectors.joining(", "));
+                    String reason = "Ingredient(s) out of stock after preparation started: " + ingredientNames;
+
+                    // Release the stock we just deducted — order cannot be fulfilled
+                    ingredientService.releaseReservation(orderId, restaurantId);
+
+                    // Update order to DECLINED
+                    order.setOrderStatus("DECLINED");
+                    order.setCancelledBy("SYSTEM");
+                    order.setCancelledAt(java.time.LocalDateTime.now());
+                    order.setCancelReason(reason);
+                    saved = orderRepository.save(order);
+
+                    // Release plate capacity
+                    releasePlateReservationsForOrder(order, restaurantId);
+
+                    // Release table capacity
+                    releaseTableReservationForOrder(order, restaurantId);
+
+                    // Auto-refund if the order was already paid
+                    if ("PAID".equals(order.getPaymentStatus()) || "REFUND_PENDING".equals(order.getPaymentStatus())) {
+                        try {
+                            List<Refund> existingRefunds = refundRepository.findByOrderId(orderId);
+                            boolean hasActiveRefund = existingRefunds.stream()
+                                    .anyMatch(r -> !"FAILED".equals(r.getRefundStatus()));
+                            if (!hasActiveRefund) {
+                                initiateRefund(orderId, actorUserId, role, restaurantId, reason);
+                                log.info("Auto-refund initiated for stock-depleted order {}", orderId);
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to initiate refund for stock-depleted order {}: {}", orderId, e.getMessage());
+                        }
+                    }
+
+                    // Record status history for the auto-decline
+                    OrderStatusHistory declineHistory = OrderStatusHistory.builder()
+                            .orderId(orderId)
+                            .fromStatus("PREPARING")
+                            .toStatus("DECLINED")
+                            .changedBy("SYSTEM")
+                            .build();
+                    orderStatusHistoryRepository.save(declineHistory);
+
+                    // Audit trail
+                    auditService.record(restaurantId, "SYSTEM", null, "ORDER_DECLINED", "ORDER", orderId,
+                            Map.of("orderNumber", saved.getOrderNumber(), "status", "DECLINED",
+                                   "reason", reason),
+                            reason);
+
+                    // Notify the customer in real-time
+                    if (saved.getUserId() != null) {
+                        realtimeService.pushToUser(saved.getUserId(), "order_status_changed", Map.of(
+                                "orderId", saved.getId(),
+                                "orderNumber", saved.getOrderNumber(),
+                                "status", "DECLINED",
+                                "reason", reason,
+                                "restaurantId", restaurantId
+                        ));
+                    }
+
+                    // Notify the restaurant kitchen in real-time
+                    realtimeService.pushToRestaurant(restaurantId, "order_declined_stock_out", Map.of(
+                            "orderId", saved.getId(),
+                            "orderNumber", saved.getOrderNumber(),
+                            "status", "DECLINED",
+                            "reason", reason,
+                            "depletedIngredients", ingredientNames
+                    ));
+
+                    log.warn("Order {} auto-declined due to ingredient stock depletion: {}",
+                            saved.getOrderNumber(), ingredientNames);
+                }
+
+                // Low-stock warning: notify the kitchen about ingredients that are
+                // running low but not yet depleted. This gives the kitchen advance
+                // notice to manage remaining orders carefully or trigger a restock.
+                if (depleted.isEmpty()) {
+                    try {
+                        List<Map<String, Object>> lowStock = ingredientService
+                                .notifyLowStockIngredients(orderId, restaurantId);
+                        if (!lowStock.isEmpty()) {
+                            String lowStockNames = lowStock.stream()
+                                    .map(d -> d.get("name") + " (" + d.get("stockQuantity") + " " + d.get("unit") + ")")
+                                    .collect(Collectors.joining(", "));
+
+                            // Push real-time warning to the restaurant kitchen
+                            realtimeService.pushToRestaurant(restaurantId, "ingredient_low_stock", Map.of(
+                                    "orderId", orderId,
+                                    "orderNumber", saved.getOrderNumber(),
+                                    "lowStockIngredients", lowStock,
+                                    "message", "⚠️ Ingredients running low after preparing " + saved.getOrderNumber()
+                                            + ": " + lowStockNames
+                            ));
+                        }
+                    } catch (Exception e) {
+                        log.warn("Low-stock check failed for order {}: {}", orderId, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                // Post-deduction check should never block the main flow;
+                // if it fails, the order stays in PREPARING and the kitchen
+                // can handle it manually.
+                log.warn("Post-deduction stock check failed for order {}: {}", orderId, e.getMessage());
+            }
         }
 
         // Release inventory on cancellation/decline

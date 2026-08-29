@@ -82,6 +82,7 @@ public class IngredientController {
                     .category(req.category())
                     .stockQuantity(req.stockQuantity())
                     .reorderLevel(req.reorderLevel())
+                    .lowStockThreshold(req.lowStockThreshold())
                     .build();
             Ingredient saved = ingredientService.create(restaurantId, ingredient);
 
@@ -118,6 +119,7 @@ public class IngredientController {
                     .category(req.category())
                     .stockQuantity(req.stockQuantity())
                     .reorderLevel(req.reorderLevel())
+                    .lowStockThreshold(req.lowStockThreshold())
                     .active(req.active())
                     .build();
             Ingredient saved = ingredientService.update(restaurantId, id, ingredient);
@@ -162,6 +164,27 @@ public class IngredientController {
             Ingredient saved = ingredientService.reactivate(restaurantId, id);
             return ResponseEntity.ok(Map.of("success", true, "ingredient", IngredientResponse.from(saved)));
         } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    /** Send a restock request email to the restaurant's contact address. */
+    @PostMapping("/{id}/restock")
+    @PreAuthorize("hasAnyRole('CHEF','MANAGER','ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<?> requestRestock(@PathVariable String id,
+                                            @RequestParam(required = false) String restaurantId) {
+        try {
+            restaurantId = TenantContext.resolveRestaurantScope(restaurantId);
+            if (restaurantId == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No restaurant scope"));
+            }
+            String userId = TenantContext.getUserId();
+            String message = ingredientService.requestRestock(restaurantId, id, userId);
+            return ResponseEntity.ok(Map.of("success", true, "message", message));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error sending restock request: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
         }
     }

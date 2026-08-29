@@ -69,6 +69,15 @@ public class Ingredient {
     @Column(name = "reorder_level", precision = 12, scale = 3)
     private BigDecimal reorderLevel;
 
+    /**
+     * Kitchen warning threshold — when stock drops to or below this level,
+     * the kitchen dashboard shows an amber LOW warning. Separate from
+     * {@code reorderLevel} which triggers purchasing/restock alerts.
+     * Falls back to {@code reorderLevel} if not set (null).
+     */
+    @Column(name = "low_stock_threshold", precision = 12, scale = 3)
+    private BigDecimal lowStockThreshold;
+
     /** Active = true means this ingredient is available for new recipes. Inactive = soft-deleted. */
     @Column(nullable = false)
     @Builder.Default

@@ -1,5 +1,7 @@
 package com.savorystay.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.savorystay.common.IngredientNormalization;
 import com.savorystay.entity.Ingredient;
 import com.savorystay.entity.InventoryLedger;
@@ -37,6 +39,10 @@ public class IngredientService {
     private final InventoryLedgerRepository inventoryLedgerRepository;
     private final OutboxService outboxService;
     private final AuditService auditService;
+    private final ChannelDeliveryService channelDeliveryService;
+    private final EmailTemplateService emailTemplateService;
+    private final com.savorystay.repository.RestaurantRepository restaurantRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ─── LIST ──────────────────────────────────────────────────────
 
@@ -149,6 +155,7 @@ public class IngredientService {
         if (updates.getCategory() != null) existing.setCategory(updates.getCategory());
         if (updates.getStockQuantity() != null) existing.setStockQuantity(updates.getStockQuantity());
         if (updates.getReorderLevel() != null) existing.setReorderLevel(updates.getReorderLevel());
+        if (updates.getLowStockThreshold() != null) existing.setLowStockThreshold(updates.getLowStockThreshold());
         if (updates.getActive() != null) existing.setActive(updates.getActive());
 
         Ingredient saved = ingredientRepository.save(existing);
@@ -194,6 +201,55 @@ public class IngredientService {
         return ingredientRepository.save(ingredient);
     }
 
+    // ─── RESTOCK REQUEST ────────────────────────────────────────────
+
+    /**
+     * Send a restock request email to the restaurant's contact address.
+     * Called by kitchen staff from the dashboard when an ingredient is low or depleted.
+     *
+     * @return success message
+     */
+    public String requestRestock(String restaurantId, String ingredientId, String requestedBy) {
+        Ingredient ingredient = ingredientRepository.findByIdAndRestaurantId(ingredientId, restaurantId)
+                .orElseThrow(() -> new IllegalArgumentException("Ingredient not found"));
+
+        var restaurant = restaurantRepository.findById(restaurantId)
+                .orElseThrow(() -> new IllegalArgumentException("Restaurant not found"));
+
+        if (restaurant.getEmail() == null || restaurant.getEmail().isBlank()) {
+            throw new IllegalArgumentException("Restaurant has no email address configured — cannot send restock request");
+        }
+
+        String subject = "Restock Request: " + (ingredient.getDisplayName() != null ? ingredient.getDisplayName() : ingredient.getName());
+        String html = emailTemplateService.restockRequestEmail(
+                ingredient.getDisplayName() != null ? ingredient.getDisplayName() : ingredient.getName(),
+                ingredient.getStockQuantity(),
+                ingredient.getReorderLevel(),
+                ingredient.getUnit(),
+                requestedBy != null ? requestedBy : "Kitchen Staff",
+                restaurant.getName());
+
+        channelDeliveryService.sendHtmlEmail(restaurant.getEmail(), subject, html);
+
+        // Audit trail
+        try {
+            String userId = TenantContext.getUserId();
+            String role = TenantContext.getRole();
+            auditService.record(restaurantId, userId, role,
+                    "RESTOCK_REQUESTED", "INGREDIENT", ingredientId,
+                    Map.of("name", ingredient.getName(),
+                           "stockQuantity", ingredient.getStockQuantity(),
+                           "requestedBy", requestedBy != null ? requestedBy : "Kitchen Staff",
+                           "email", restaurant.getEmail()),
+                    "Restock request email sent to " + restaurant.getEmail());
+        } catch (Exception ignored) {}
+
+        log.info("Restock request sent for ingredient {} ({}) to {} by {}",
+                ingredient.getName(), ingredientId, restaurant.getEmail(), requestedBy);
+
+        return "Restock request email sent to " + restaurant.getEmail();
+    }
+
     // ─── HARD DELETE ───────────────────────────────────────────────
 
     /**
@@ -233,6 +289,23 @@ public class IngredientService {
         return ingredientRepository.countRecipeUsage(ingredientId);
     }
 
+    // ─── INGREDIENT SNAPSHOT PARSING ─────────────────────────────────
+
+    /**
+     * P0.13: Parse the JSON ingredient snapshot stored on OrderItem.
+     * Format: [{"ingredientId":"...","name":"...","quantity":250,"unit":"g"},...]
+     * Returns empty list if snapshot is null, blank, or malformed (graceful fallback).
+     */
+    private List<Map<String, Object>> parseIngredientSnapshot(String snapshot) {
+        if (snapshot == null || snapshot.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(snapshot, new TypeReference<>() {});
+        } catch (Exception e) {
+            log.debug("Failed to parse ingredient snapshot, falling back to live recipe: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
     // ─── INVENTORY RESERVATION ─────────────────────────────────────
 
     /**
@@ -240,22 +313,52 @@ public class IngredientService {
      * Since we consume stock when PREPARING starts, releasing means adding back.
      * Only release if the order was in PREPARING state (stock was deducted).
      * NEW orders never consumed stock so there's nothing to release.
+     *
+     * P0.13: Uses the ingredient snapshot from OrderItem to release exactly
+     * what was originally deducted, so post-order recipe changes are harmless.
+     * Falls back to live recipe for orders placed before snapshots existed.
      */
     @Transactional
     public void releaseReservation(String orderId, String restaurantId) {
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
         Map<String, BigDecimal> usageById = new LinkedHashMap<>();
+        Map<String, BigDecimal> usageByName = new LinkedHashMap<>();
+        boolean usedSnapshot = false;
 
         for (OrderItem item : items) {
-            List<MenuItemIngredient> ings = menuItemIngredientRepository.findByMenuItemId(item.getMenuItemId());
-            for (MenuItemIngredient ing : ings) {
-                BigDecimal total = ing.getQuantityPerUnit().multiply(BigDecimal.valueOf(item.getQuantity()));
-                if (ing.getIngredientId() != null && !ing.getIngredientId().isBlank()) {
-                    usageById.merge(ing.getIngredientId(), total, BigDecimal::add);
+            List<Map<String, Object>> snapshot = parseIngredientSnapshot(item.getIngredientSnapshot());
+            if (!snapshot.isEmpty()) {
+                // Use the frozen recipe from order time
+                usedSnapshot = true;
+                for (Map<String, Object> entry : snapshot) {
+                    String ingredientId = entry.get("ingredientId") != null ? entry.get("ingredientId").toString() : null;
+                    String name = entry.get("name") != null ? entry.get("name").toString() : null;
+                    BigDecimal qtyPerUnit = entry.get("quantity") != null
+                            ? new BigDecimal(entry.get("quantity").toString())
+                            : BigDecimal.ZERO;
+                    BigDecimal total = qtyPerUnit.multiply(BigDecimal.valueOf(item.getQuantity()));
+
+                    if (ingredientId != null && !ingredientId.isBlank()) {
+                        usageById.merge(ingredientId, total, BigDecimal::add);
+                    } else if (name != null && !name.isBlank()) {
+                        usageByName.merge(name, total, BigDecimal::add);
+                    }
+                }
+            } else {
+                // Fallback: query live recipe (pre-snapshot orders)
+                List<MenuItemIngredient> ings = menuItemIngredientRepository.findByMenuItemId(item.getMenuItemId());
+                for (MenuItemIngredient ing : ings) {
+                    BigDecimal total = ing.getQuantityPerUnit().multiply(BigDecimal.valueOf(item.getQuantity()));
+                    if (ing.getIngredientId() != null && !ing.getIngredientId().isBlank()) {
+                        usageById.merge(ing.getIngredientId(), total, BigDecimal::add);
+                    } else {
+                        usageByName.merge(ing.getName(), total, BigDecimal::add);
+                    }
                 }
             }
         }
 
+        // Release ID-based reservations
         for (Map.Entry<String, BigDecimal> entry : usageById.entrySet()) {
             String ingredientId = entry.getKey();
             BigDecimal qtyToRelease = entry.getValue();
@@ -271,32 +374,163 @@ public class IngredientService {
             });
         }
 
-        log.info("Released ingredient reservation for cancelled order {} ({} ingredients)", orderId, usageById.size());
+        // Release name-based reservations (snapshot or legacy fallback)
+        for (Map.Entry<String, BigDecimal> entry : usageByName.entrySet()) {
+            String name = entry.getKey();
+            BigDecimal qtyToRelease = entry.getValue();
+            ingredientRepository.findByRestaurantIdAndName(restaurantId, name).ifPresent(ing -> {
+                ing.setStockQuantity(ing.getStockQuantity().add(qtyToRelease));
+                ingredientRepository.save(ing);
+                inventoryLedgerRepository.save(InventoryLedger.builder()
+                        .inventoryId(ing.getId())
+                        .delta(qtyToRelease)
+                        .reason("CANCELLATION_RELEASE")
+                        .referenceId(orderId)
+                        .build());
+            });
+        }
+
+        log.info("Released ingredient reservation for order {} ({} ingredients, snapshot={})",
+                orderId, usageById.size() + usageByName.size(), usedSnapshot);
+    }
+
+    // ─── INGREDIENT AVAILABILITY CHECK ─────────────────────────────
+
+    /**
+     * P0.13: Check whether all ingredients needed for an order are in stock.
+     * Uses the ingredient snapshot from OrderItem (frozen recipe at order time),
+     * falling back to the live recipe for pre-snapshot orders.
+     *
+     * @throws IllegalArgumentException with details about which ingredients are short
+     */
+    public void checkIngredientAvailability(String orderId, String restaurantId) {
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<String, BigDecimal> requiredById = new LinkedHashMap<>();
+        Map<String, BigDecimal> requiredByName = new LinkedHashMap<>();
+
+        for (OrderItem item : items) {
+            List<Map<String, Object>> snapshot = parseIngredientSnapshot(item.getIngredientSnapshot());
+            if (!snapshot.isEmpty()) {
+                for (Map<String, Object> entry : snapshot) {
+                    String ingredientId = entry.get("ingredientId") != null ? entry.get("ingredientId").toString() : null;
+                    String name = entry.get("name") != null ? entry.get("name").toString() : null;
+                    BigDecimal qtyPerUnit = entry.get("quantity") != null
+                            ? new BigDecimal(entry.get("quantity").toString())
+                            : BigDecimal.ZERO;
+                    BigDecimal total = qtyPerUnit.multiply(BigDecimal.valueOf(item.getQuantity()));
+                    if (ingredientId != null && !ingredientId.isBlank()) {
+                        requiredById.merge(ingredientId, total, BigDecimal::add);
+                    } else if (name != null && !name.isBlank()) {
+                        requiredByName.merge(name, total, BigDecimal::add);
+                    }
+                }
+            } else {
+                List<MenuItemIngredient> ings = menuItemIngredientRepository.findByMenuItemId(item.getMenuItemId());
+                for (MenuItemIngredient ing : ings) {
+                    BigDecimal total = ing.getQuantityPerUnit().multiply(BigDecimal.valueOf(item.getQuantity()));
+                    if (ing.getIngredientId() != null && !ing.getIngredientId().isBlank()) {
+                        requiredById.merge(ing.getIngredientId(), total, BigDecimal::add);
+                    } else {
+                        requiredByName.merge(ing.getName(), total, BigDecimal::add);
+                    }
+                }
+            }
+        }
+
+        List<Map<String, Object>> shortages = new ArrayList<>();
+
+        // Check ID-based ingredients
+        for (Map.Entry<String, BigDecimal> entry : requiredById.entrySet()) {
+            String ingredientId = entry.getKey();
+            BigDecimal required = entry.getValue();
+            ingredientRepository.findById(ingredientId).ifPresent(ing -> {
+                BigDecimal available = ing.getStockQuantity();
+                if (available.compareTo(required) < 0) {
+                    Map<String, Object> shortage = new LinkedHashMap<>();
+                    shortage.put("ingredientId", ingredientId);
+                    shortage.put("name", ing.getName());
+                    shortage.put("required", required.setScale(2, RoundingMode.HALF_UP));
+                    shortage.put("available", available.setScale(2, RoundingMode.HALF_UP));
+                    shortage.put("shortfall", required.subtract(available).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
+                    synchronized (shortages) { shortages.add(shortage); }
+                }
+            });
+        }
+
+        // Check name-based ingredients
+        for (Map.Entry<String, BigDecimal> entry : requiredByName.entrySet()) {
+            String name = entry.getKey();
+            BigDecimal required = entry.getValue();
+            ingredientRepository.findByRestaurantIdAndName(restaurantId, name).ifPresent(ing -> {
+                BigDecimal available = ing.getStockQuantity();
+                if (available.compareTo(required) < 0) {
+                    Map<String, Object> shortage = new LinkedHashMap<>();
+                    shortage.put("name", name);
+                    shortage.put("required", required.setScale(2, RoundingMode.HALF_UP));
+                    shortage.put("available", available.setScale(2, RoundingMode.HALF_UP));
+                    shortage.put("shortfall", required.subtract(available).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
+                    synchronized (shortages) { shortages.add(shortage); }
+                }
+            });
+        }
+
+        if (!shortages.isEmpty()) {
+            StringBuilder msg = new StringBuilder("Insufficient ingredient stock for order:");
+            for (Map<String, Object> s : shortages) {
+                msg.append(String.format("\n  - %s: need %s %s, have %s %s",
+                        s.get("name"), s.get("required"),
+                        s.containsKey("unit") ? s.get("unit") : "",
+                        s.get("available"), s.containsKey("unit") ? s.get("unit") : ""));
+            }
+            throw new IllegalArgumentException(msg.toString());
+        }
     }
 
     // ─── EXISTING BUSINESS LOGIC (preserved) ──────────────────────
 
     /**
      * Deduct raw ingredient stock for every line item in an order.
-     * Now uses ingredient IDs for aggregation instead of name-based matching.
+     *
+     * P0.13: Uses the ingredient snapshot stored on each OrderItem to deduct
+     * exactly what was in the recipe when the customer placed the order.
+     * Falls back to the live recipe for orders placed before snapshots existed.
      */
     @Transactional
     public void deductForOrder(String orderId, String restaurantId) {
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
         Map<String, BigDecimal> usageById = new LinkedHashMap<>();
-        Map<String, BigDecimal> usageByName = new HashMap<>();
-        Map<String, String> unitsByName = new HashMap<>();
+        Map<String, BigDecimal> usageByName = new LinkedHashMap<>();
+        boolean usedSnapshot = false;
 
         for (OrderItem item : items) {
-            List<MenuItemIngredient> ings = menuItemIngredientRepository.findByMenuItemId(item.getMenuItemId());
-            for (MenuItemIngredient ing : ings) {
-                BigDecimal total = ing.getQuantityPerUnit().multiply(BigDecimal.valueOf(item.getQuantity()));
-                // Aggregate by ingredient ID when available (preferred), fall back to name
-                if (ing.getIngredientId() != null && !ing.getIngredientId().isBlank()) {
-                    usageById.merge(ing.getIngredientId(), total, BigDecimal::add);
-                } else {
-                    usageByName.merge(ing.getName(), total, BigDecimal::add);
-                    unitsByName.putIfAbsent(ing.getName(), ing.getUnit());
+            List<Map<String, Object>> snapshot = parseIngredientSnapshot(item.getIngredientSnapshot());
+            if (!snapshot.isEmpty()) {
+                // Use the frozen recipe from order time
+                usedSnapshot = true;
+                for (Map<String, Object> entry : snapshot) {
+                    String ingredientId = entry.get("ingredientId") != null ? entry.get("ingredientId").toString() : null;
+                    String name = entry.get("name") != null ? entry.get("name").toString() : null;
+                    BigDecimal qtyPerUnit = entry.get("quantity") != null
+                            ? new BigDecimal(entry.get("quantity").toString())
+                            : BigDecimal.ZERO;
+                    BigDecimal total = qtyPerUnit.multiply(BigDecimal.valueOf(item.getQuantity()));
+
+                    if (ingredientId != null && !ingredientId.isBlank()) {
+                        usageById.merge(ingredientId, total, BigDecimal::add);
+                    } else if (name != null && !name.isBlank()) {
+                        usageByName.merge(name, total, BigDecimal::add);
+                    }
+                }
+            } else {
+                // Fallback: query live recipe (pre-snapshot orders)
+                List<MenuItemIngredient> ings = menuItemIngredientRepository.findByMenuItemId(item.getMenuItemId());
+                for (MenuItemIngredient ing : ings) {
+                    BigDecimal total = ing.getQuantityPerUnit().multiply(BigDecimal.valueOf(item.getQuantity()));
+                    if (ing.getIngredientId() != null && !ing.getIngredientId().isBlank()) {
+                        usageById.merge(ing.getIngredientId(), total, BigDecimal::add);
+                    } else {
+                        usageByName.merge(ing.getName(), total, BigDecimal::add);
+                    }
                 }
             }
         }
@@ -312,7 +546,7 @@ public class IngredientService {
             });
         }
 
-        // Process name-based deductions (legacy fallback)
+        // Process name-based deductions (snapshot or legacy fallback)
         for (Map.Entry<String, BigDecimal> entry : usageByName.entrySet()) {
             String name = entry.getKey();
             ingredientRepository.findByRestaurantIdAndName(restaurantId, name).ifPresent(ing -> {
@@ -323,7 +557,8 @@ public class IngredientService {
             });
         }
 
-        log.info("Deducted ingredients for order {} (audited + outbox events emitted)", orderId);
+        log.info("Deducted ingredients for order {} ({} id-based, {} name-based, snapshot={})",
+                orderId, usageById.size(), usageByName.size(), usedSnapshot);
     }
 
     private void auditAndAlert(Ingredient ing, BigDecimal delta, String orderId, String restaurantId) {
@@ -355,6 +590,201 @@ public class IngredientService {
             low.put("reorderLevel", ing.getReorderLevel());
             outboxService.record(ing.getId(), "inventory.stock.low", low);
         }
+    }
+
+    // ─── POST-DEDUCTION STOCK-OUT CHECK ──────────────────────────
+
+    /**
+     * P0.13: After stock has been deducted for an order, check if any ingredients
+     * are now fully depleted (stock == 0). Returns the list of depleted ingredients
+     * so the caller can notify the kitchen / auto-decline the order.
+     *
+     * Uses the ingredient snapshot from OrderItem (frozen recipe at order time),
+     * falling back to the live recipe for pre-snapshot orders.
+     */
+    public List<Map<String, Object>> notifyDepletedIngredients(String orderId, String restaurantId) {
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<String, BigDecimal> requiredById = new LinkedHashMap<>();
+        Map<String, BigDecimal> requiredByName = new LinkedHashMap<>();
+
+        for (OrderItem item : items) {
+            List<Map<String, Object>> snapshot = parseIngredientSnapshot(item.getIngredientSnapshot());
+            if (!snapshot.isEmpty()) {
+                for (Map<String, Object> entry : snapshot) {
+                    String ingredientId = entry.get("ingredientId") != null ? entry.get("ingredientId").toString() : null;
+                    String name = entry.get("name") != null ? entry.get("name").toString() : null;
+                    BigDecimal qtyPerUnit = entry.get("quantity") != null
+                            ? new BigDecimal(entry.get("quantity").toString())
+                            : BigDecimal.ZERO;
+                    BigDecimal total = qtyPerUnit.multiply(BigDecimal.valueOf(item.getQuantity()));
+                    if (ingredientId != null && !ingredientId.isBlank()) {
+                        requiredById.merge(ingredientId, total, BigDecimal::add);
+                    } else if (name != null && !name.isBlank()) {
+                        requiredByName.merge(name, total, BigDecimal::add);
+                    }
+                }
+            } else {
+                List<MenuItemIngredient> ings = menuItemIngredientRepository.findByMenuItemId(item.getMenuItemId());
+                for (MenuItemIngredient ing : ings) {
+                    BigDecimal total = ing.getQuantityPerUnit().multiply(BigDecimal.valueOf(item.getQuantity()));
+                    if (ing.getIngredientId() != null && !ing.getIngredientId().isBlank()) {
+                        requiredById.merge(ing.getIngredientId(), total, BigDecimal::add);
+                    } else {
+                        requiredByName.merge(ing.getName(), total, BigDecimal::add);
+                    }
+                }
+            }
+        }
+
+        List<Map<String, Object>> depleted = new ArrayList<>();
+
+        // Check ID-based ingredients
+        for (Map.Entry<String, BigDecimal> entry : requiredById.entrySet()) {
+            String ingredientId = entry.getKey();
+            ingredientRepository.findById(ingredientId).ifPresent(ing -> {
+                if (ing.getStockQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("ingredientId", ingredientId);
+                    item.put("name", ing.getName());
+                    item.put("stockQuantity", ing.getStockQuantity());
+                    item.put("reorderLevel", ing.getReorderLevel());
+                    synchronized (depleted) { depleted.add(item); }
+                }
+            });
+        }
+
+        // Check name-based ingredients
+        for (Map.Entry<String, BigDecimal> entry : requiredByName.entrySet()) {
+            String name = entry.getKey();
+            ingredientRepository.findByRestaurantIdAndName(restaurantId, name).ifPresent(ing -> {
+                if (ing.getStockQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("name", name);
+                    item.put("stockQuantity", ing.getStockQuantity());
+                    item.put("reorderLevel", ing.getReorderLevel());
+                    synchronized (depleted) { depleted.add(item); }
+                }
+            });
+        }
+
+        if (!depleted.isEmpty()) {
+            // Build a human-readable list of depleted ingredients
+            String ingredientList = depleted.stream()
+                    .map(d -> (String) d.get("name"))
+                    .collect(Collectors.joining(", "));
+
+            log.warn("Ingredient stock depleted after deducting for order {}: {}", orderId, ingredientList);
+
+            // Emit a high-priority outbox event so the kitchen is notified immediately
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("orderId", orderId);
+            payload.put("restaurantId", restaurantId);
+            payload.put("depletedIngredients", depleted);
+            payload.put("message", "Ingredient stock depleted during preparation: " + ingredientList);
+            outboxService.record(orderId, "order.ingredient.depleted", payload);
+        }
+
+        return depleted;
+    }
+
+    // ─── POST-DEDUCTION LOW-STOCK WARNING ─────────────────────────
+
+    /**
+     * P0.13: After stock has been deducted for an order, check if any ingredients
+     * are running low (stock > 0 but at or below the reorder level). These are
+     * ingredients the kitchen should be aware of before they hit zero.
+     *
+     * Returns the list of low-stock ingredients with current stock and reorder
+     * level so the caller can push a real-time warning to the kitchen.
+     *
+     * Uses the ingredient snapshot from OrderItem (frozen recipe at order time),
+     * falling back to the live recipe for pre-snapshot orders.
+     */
+    public List<Map<String, Object>> notifyLowStockIngredients(String orderId, String restaurantId) {
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Set<String> usedIngredientIds = new LinkedHashSet<>();
+        Set<String> usedIngredientNames = new LinkedHashSet<>();
+
+        for (OrderItem item : items) {
+            List<Map<String, Object>> snapshot = parseIngredientSnapshot(item.getIngredientSnapshot());
+            if (!snapshot.isEmpty()) {
+                for (Map<String, Object> entry : snapshot) {
+                    String ingredientId = entry.get("ingredientId") != null ? entry.get("ingredientId").toString() : null;
+                    String name = entry.get("name") != null ? entry.get("name").toString() : null;
+                    if (ingredientId != null && !ingredientId.isBlank()) usedIngredientIds.add(ingredientId);
+                    else if (name != null && !name.isBlank()) usedIngredientNames.add(name);
+                }
+            } else {
+                List<MenuItemIngredient> ings = menuItemIngredientRepository.findByMenuItemId(item.getMenuItemId());
+                for (MenuItemIngredient ing : ings) {
+                    if (ing.getIngredientId() != null && !ing.getIngredientId().isBlank()) usedIngredientIds.add(ing.getIngredientId());
+                    else usedIngredientNames.add(ing.getName());
+                }
+            }
+        }
+
+        List<Map<String, Object>> lowStock = new ArrayList<>();
+
+        // Check ID-based ingredients
+        for (String ingredientId : usedIngredientIds) {
+            ingredientRepository.findById(ingredientId).ifPresent(ing -> {
+                BigDecimal stock = ing.getStockQuantity();
+                BigDecimal threshold = ing.getLowStockThreshold() != null
+                        ? ing.getLowStockThreshold() : ing.getReorderLevel();
+                if (stock.compareTo(BigDecimal.ZERO) > 0
+                        && threshold != null && stock.compareTo(threshold) <= 0) {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("ingredientId", ingredientId);
+                    entry.put("name", ing.getName());
+                    entry.put("stockQuantity", stock.setScale(2, RoundingMode.HALF_UP));
+                    entry.put("lowStockThreshold", threshold.setScale(2, RoundingMode.HALF_UP));
+                    entry.put("reorderLevel", ing.getReorderLevel() != null
+                            ? ing.getReorderLevel().setScale(2, RoundingMode.HALF_UP) : null);
+                    entry.put("unit", ing.getUnit());
+                    entry.put("severity", "LOW");
+                    synchronized (lowStock) { lowStock.add(entry); }
+                }
+            });
+        }
+
+        // Check name-based ingredients
+        for (String name : usedIngredientNames) {
+            ingredientRepository.findByRestaurantIdAndName(restaurantId, name).ifPresent(ing -> {
+                BigDecimal stock = ing.getStockQuantity();
+                BigDecimal threshold = ing.getLowStockThreshold() != null
+                        ? ing.getLowStockThreshold() : ing.getReorderLevel();
+                if (stock.compareTo(BigDecimal.ZERO) > 0
+                        && threshold != null && stock.compareTo(threshold) <= 0) {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("name", name);
+                    entry.put("stockQuantity", stock.setScale(2, RoundingMode.HALF_UP));
+                    entry.put("lowStockThreshold", threshold.setScale(2, RoundingMode.HALF_UP));
+                    entry.put("reorderLevel", ing.getReorderLevel() != null
+                            ? ing.getReorderLevel().setScale(2, RoundingMode.HALF_UP) : null);
+                    entry.put("unit", ing.getUnit());
+                    entry.put("severity", "LOW");
+                    synchronized (lowStock) { lowStock.add(entry); }
+                }
+            });
+        }
+
+        if (!lowStock.isEmpty()) {
+            String ingredientList = lowStock.stream()
+                    .map(d -> d.get("name") + " (" + d.get("stockQuantity") + " " + d.get("unit") + " left)")
+                    .collect(Collectors.joining(", "));
+
+            log.warn("Ingredient stock running low after order {}: {}", orderId, ingredientList);
+
+            // Emit outbox event so the kitchen dashboard and email alerts pick it up
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("orderId", orderId);
+            payload.put("restaurantId", restaurantId);
+            payload.put("lowStockIngredients", lowStock);
+            payload.put("message", "Ingredient stock running low: " + ingredientList);
+            outboxService.record(orderId, "order.ingredient.low_stock", payload);
+        }
+
+        return lowStock;
     }
 
     /**

@@ -25,5 +25,9 @@ public record CreateIngredientRequest(
         BigDecimal stockQuantity,
 
         @DecimalMin(value = "0", message = "Reorder level cannot be negative")
-        BigDecimal reorderLevel) {
+        BigDecimal reorderLevel,
+
+        /** Kitchen warning threshold — when stock drops to/below this, kitchen sees an amber warning. */
+        @DecimalMin(value = "0", message = "Low stock threshold cannot be negative")
+        BigDecimal lowStockThreshold) {
 }

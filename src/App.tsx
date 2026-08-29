@@ -14,6 +14,7 @@ import { SuperAdminDashboard } from './components/SuperAdminDashboard';
 import { StaffManagement } from './components/StaffManagement';
 import { CustomerMembershipManager } from './components/CustomerMembershipManager';
 import { IngredientPlanning } from './components/IngredientPlanning';
+import { KitchenStockDashboard, LowStockAlert } from './components/KitchenStockDashboard';
 import { ManagerDashboard } from './components/ManagerDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { PreOrderSettings } from './components/PreOrderSettings';
@@ -47,6 +48,9 @@ export default function App() {
 
   // Real-time table availability updates from SSE
   const [tableAvailabilityUpdate, setTableAvailabilityUpdate] = useState<any>(null);
+
+  // Real-time low-stock ingredient alerts from SSE
+  const [lowStockAlerts, setLowStockAlerts] = useState<LowStockAlert[]>([]);
 
   // Auth state
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -154,6 +158,17 @@ export default function App() {
 
     if (type === 'table_availability' && data) {
       setTableAvailabilityUpdate(data);
+    }
+
+    if (type === 'ingredient_low_stock' && data) {
+      const alert: LowStockAlert = {
+        orderId: data.orderId,
+        orderNumber: data.orderNumber,
+        lowStockIngredients: data.lowStockIngredients || [],
+        message: data.message || '',
+        timestamp: new Date().toISOString(),
+      };
+      setLowStockAlerts((prev) => [alert, ...prev].slice(0, 10));
     }
   }, []);
 
@@ -572,7 +587,13 @@ export default function App() {
 
         {activeTab === 'chef_prep' && (
           staffRestaurantId ? (
-            <IngredientPlanning restaurantId={staffRestaurantId} canManage={canManageMenu} />
+            <div className="flex flex-col gap-6 max-w-[1440px] mx-auto px-4 md:px-8 pt-6 pb-28">
+              <KitchenStockDashboard
+                restaurantId={staffRestaurantId}
+                lowStockAlerts={lowStockAlerts}
+              />
+              <IngredientPlanning restaurantId={staffRestaurantId} canManage={canManageMenu} />
+            </div>
           ) : (
             <ChefPrepSummary prepItems={INITIAL_PREP_ITEMS} />
           )

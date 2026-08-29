@@ -685,6 +685,13 @@ export async function getIngredientUsage(id: string): Promise<number> {
   return data.usageCount || 0;
 }
 
+export async function requestIngredientRestock(id: string, restaurantId?: string): Promise<string> {
+  const q = restaurantId ? `?restaurantId=${encodeURIComponent(restaurantId)}` : '';
+  const res = await authenticatedFetch(`/api/v1/ingredients/${id}/restock${q}`, { method: 'POST' });
+  const data = await readJson<{ success: boolean; message: string }>(res);
+  return data.message;
+}
+
 export async function findSimilarIngredients(name: string, restaurantId?: string): Promise<Ingredient[]> {
   const params = new URLSearchParams();
   params.set('name', name);

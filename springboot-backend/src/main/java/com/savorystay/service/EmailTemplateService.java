@@ -159,6 +159,43 @@ public class EmailTemplateService {
                 MUTED, BRAND_AMBER, stock, MUTED, TEXT, reorderLevel, MUTED));
     }
 
+    // --------------------------------------------------------- Restock
+
+    /** Restock request email — sent to the restaurant when kitchen staff triggers a restock. */
+    public String restockRequestEmail(String ingredientName, BigDecimal currentStock,
+                                       BigDecimal reorderLevel, String unit,
+                                       String requestedBy, String restaurantName) {
+        return wrap("🔄 Restock Request: " + ingredientName, """
+                <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:%s">The kitchen has requested a restock for an ingredient that is running low.</p>
+                <div style="margin:0 auto 24px;padding:22px 28px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;text-align:center">
+                    <div style="font-size:28px;margin-bottom:6px">📦</div>
+                    <div style="font-size:18px;font-weight:700;color:%s">%s</div>
+                </div>
+                <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;margin:0 0 24px">
+                    <tr>
+                        <td align="center" style="padding:16px;border-right:1px solid #e5e7eb">
+                            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:%s;margin-bottom:4px">Current Stock</div>
+                            <div style="font-size:22px;font-weight:700;color:%s">%s %s</div>
+                        </td>
+                        <td align="center" style="padding:16px;border-right:1px solid #e5e7eb">
+                            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:%s;margin-bottom:4px">Reorder Level</div>
+                            <div style="font-size:22px;font-weight:700;color:%s">%s %s</div>
+                        </td>
+                        <td align="center" style="padding:16px">
+                            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:%s;margin-bottom:4px">Requested By</div>
+                            <div style="font-size:14px;font-weight:700;color:%s">%s</div>
+                        </td>
+                    </tr>
+                </table>
+                <p style="margin:0 0 8px;font-size:13px;color:%s;line-height:1.6">Please place a restock order with your supplier as soon as possible to avoid running out during service.</p>
+                <p style="margin:0;font-size:13px;color:%s;line-height:1.6">— %s Kitchen Team</p>
+                """.formatted(TEXT, BRAND_DARK, ingredientName,
+                MUTED, BRAND_AMBER, currentStock, unit,
+                MUTED, TEXT, reorderLevel, unit,
+                MUTED, TEXT, requestedBy,
+                MUTED, MUTED, restaurantName));
+    }
+
     // ---------------------------------------------------------------- Generic
 
     /** Fallback branded email used by NotificationService when no specific template matches. */

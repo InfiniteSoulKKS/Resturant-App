@@ -19,6 +19,7 @@ public record IngredientResponse(
         String category,
         BigDecimal stockQuantity,
         BigDecimal reorderLevel,
+        BigDecimal lowStockThreshold,
         Boolean active,
         LocalDateTime updatedAt) {
 
@@ -32,6 +33,7 @@ public record IngredientResponse(
                 ing.getCategory(),
                 ing.getStockQuantity(),
                 ing.getReorderLevel(),
+                ing.getLowStockThreshold(),
                 ing.getActive(),
                 ing.getUpdatedAt());
     }
